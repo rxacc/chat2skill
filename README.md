@@ -132,6 +132,7 @@ The Cursor plugin uses:
 
 - `hooks/cursor-hooks.json` for Cursor-format hooks.
 - `${CURSOR_PLUGIN_ROOT}` for installed plugin paths.
+- `.cursor/rules/chat2skill.mdc` as an always-on project rule.
 - `sessionStart` to provide the current project summary when Cursor
   accepts hook context.
 - `stop` to learn from the newest Cursor agent transcript under
@@ -146,7 +147,17 @@ Cursor, use the `chat2skill` skill or run:
 python3 scripts/retrieve_for_prompt.py "your current task"
 ```
 
-### 2d. Other agents
+### 2d. OpenCode
+
+Run OpenCode from a checkout of this repository. `opencode.json` loads
+`.opencode/plugins/chat2skill.mjs`, which calls the same retrieval CLI and
+adds relevant snippets to the system prompt.
+
+```json
+{ "plugin": ["./.opencode/plugins/chat2skill.mjs"] }
+```
+
+### 2e. Other agents
 
 If your agent supports hooks, point them at:
 - prompt-submit: `python3 <plugin-root>/scripts/hook_user_prompt_submit.py`
@@ -162,6 +173,16 @@ python3 scripts/update_from_transcript.py --latest
 python3 scripts/retrieve_for_prompt.py "refactor the auth module"
 ```
 
+For agents that only support repository instructions, copy or keep the
+matching adapter file:
+
+- Cursor: `.cursor/rules/chat2skill.mdc`
+- Windsurf/Cascade: `.windsurf/rules/chat2skill.md`
+- Cline: `.clinerules/chat2skill.md`
+- GitHub Copilot: `.github/copilot-instructions.md`
+- Kiro: `.kiro/steering/chat2skill.md`
+- Generic agents/Aider: `AGENTS.md`
+
 ## Agent Support
 
 Chat2Skill needs two capabilities for the full automatic loop:
@@ -175,18 +196,21 @@ Chat2Skill needs two capabilities for the full automatic loop:
 | --- | --- | --- |
 | Claude Code | Native plugin marketplace | Full automatic support through `.claude-plugin/marketplace.json`, the `chat2skill` skill, and standard `hooks/hooks.json` with `UserPromptSubmit` + `Stop`. |
 | Codex | Native plugin/local installer | Full automatic support through `.codex-plugin/plugin.json` and `install.sh`, which writes absolute hook paths for the local clone. |
-| Cursor | Native plugin | Supported through `.cursor-plugin/plugin.json`, the `chat2skill` skill, `sessionStart`, and `stop`. Stop learning works from Cursor transcripts. Dynamic per-prompt context injection is limited by Cursor's current `beforeSubmitPrompt` hook behavior. |
+| Cursor | Native plugin + project rule | Supported through `.cursor-plugin/plugin.json`, `hooks/cursor-hooks.json`, `.cursor/rules/chat2skill.mdc`, and the `chat2skill` skill. Stop learning works from Cursor transcripts. Dynamic per-prompt context injection is limited by Cursor's current `beforeSubmitPrompt` hook behavior. |
+| OpenCode | Server plugin + command | `opencode.json` loads `.opencode/plugins/chat2skill.mjs`, which calls `retrieve_for_prompt.py` and appends relevant snippets to the system prompt. `.opencode/command/chat2skill.md` adds a manual command prompt. |
+| GitHub Copilot | Repository instructions | `.github/copilot-instructions.md` tells Copilot how to run Chat2Skill CLI retrieval/update. Local Copilot CLI hooks can also call Chat2Skill; cloud/ephemeral agents are not equivalent to local persistent hooks. |
+| Kimi Code CLI | Skills/hooks capable | Configure `UserPromptSubmit`/`Stop` equivalents to call the hook scripts, or use the skill/CLI workflow. |
+| Windsurf / Cascade | Project rule + hooks capable | `.windsurf/rules/chat2skill.md` provides the project rule. Configure workspace/user hooks to call the hook scripts when available. |
+| Kiro | Steering rule + hooks/export capable | `.kiro/steering/chat2skill.md` provides the steering rule. Use hooks where available, or export/process transcripts manually with `update_from_transcript.py`. |
+| Cline | Project rule | `.clinerules/chat2skill.md` provides the project rule. Use the CLI scripts for retrieval/update. |
+| Aider / generic agents | `AGENTS.md` | `AGENTS.md` gives portable instructions for agents that read repository guidance. |
 | Gemini CLI | Extension/hooks capable | Use the generic hook commands or CLI scripts. A dedicated Gemini extension manifest is not included yet. |
 | Google Antigravity | Plugin/hooks capable | Use the generic hook commands or CLI scripts. A dedicated Antigravity plugin manifest is not included yet. |
-| OpenCode | Plugin/hooks capable | Requires a small JS/TS plugin adapter or direct hook commands. No native OpenCode manifest is included yet. |
-| GitHub Copilot CLI | Hooks capable | Local CLI hooks can call Chat2Skill. Copilot VS Code Chat and cloud/ephemeral agents are not equivalent to local persistent hooks. |
-| Kimi Code CLI | Skills/hooks capable | Configure `UserPromptSubmit`/`Stop` equivalents to call the hook scripts, or use the skill/CLI workflow. |
-| Windsurf / Cascade | Hooks capable | Configure workspace/user hooks to call the hook scripts. No native Chat2Skill marketplace plugin is included yet. |
-| Kiro | Hooks/export capable | Use hooks where available, or export/process transcripts manually with `update_from_transcript.py`. |
 | Continue | Manual/partial | Rules, prompts, and MCP are useful, but no verified lifecycle hook path for the full Chat2Skill loop is included. |
-| Cline | Manual/partial | Skills/rules/MCP can carry instructions, but no verified full lifecycle hook path is included. |
-| Aider | Manual CLI | Use `update_from_transcript.py` and `retrieve_for_prompt.py`; no native plugin/hook integration is included. |
 | Roo Code | Manual/legacy | Use the CLI scripts only unless your local fork exposes compatible hooks. |
+
+See [docs/agent-portability.md](docs/agent-portability.md) for the full
+adapter map.
 
 ## Requirements
 

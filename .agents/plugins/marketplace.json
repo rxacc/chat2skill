@@ -1,0 +1,21 @@
+{
+  "name": "chat2skill",
+  "interface": {
+    "displayName": "Chat2Skill"
+  },
+  "plugins": [
+    {
+      "name": "chat2skill",
+      "source": {
+        "source": "url",
+        "url": "https://github.com/rexia01/Chat2Skill.git",
+        "ref": "main"
+      },
+      "policy": {
+        "installation": "AVAILABLE",
+        "authentication": "ON_INSTALL"
+      },
+      "category": "Productivity"
+    }
+  ]
+}

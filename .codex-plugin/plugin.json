@@ -13,7 +13,12 @@
     "longDescription": "Chat2Skill captures conversations after each session, sends them to the Chat2Skill cloud extraction API (using your own LLM api key), stores the learned skills locally under ~/.chat2skill, and injects relevant skills into new conversations.",
     "developerName": "Chat2Skill contributors",
     "category": "Productivity",
-    "capabilities": ["skills", "hooks"],
-    "defaultPrompt": "Use Chat2Skill to update or retrieve learned skills from my conversations."
+    "capabilities": ["Instructions", "Lifecycle hooks"],
+    "websiteURL": "https://github.com/rexia01/Chat2Skill",
+    "defaultPrompt": [
+      "Use Chat2Skill to retrieve relevant learned skills for this task.",
+      "Update Chat2Skill from the latest session.",
+      "Show me where Chat2Skill stored my generated skills."
+    ]
   }
 }
