@@ -14,7 +14,7 @@
     "developerName": "Chat2Skill contributors",
     "category": "Productivity",
     "capabilities": ["Instructions", "Lifecycle hooks"],
-    "websiteURL": "https://github.com/rexia01/Chat2Skill",
+    "websiteURL": "https://github.com/rexia01/chat2skill",
     "defaultPrompt": [
       "Use Chat2Skill to retrieve relevant learned skills for this task.",
       "Update Chat2Skill from the latest session.",

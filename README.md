@@ -91,7 +91,7 @@ variables if you prefer shell config or need to override the JSON file.
 Install from the Chat2Skill marketplace:
 
 ```bash
-claude plugin marketplace add https://github.com/rexia01/Chat2Skill
+claude plugin marketplace add https://github.com/rexia01/chat2skill
 claude plugin install chat2skill@chat2skill
 ```
 
@@ -108,7 +108,7 @@ no path setup needed.
 ### 2b. Codex
 
 ```bash
-git clone https://github.com/rexia01/Chat2Skill.git ~/plugins/chat2skill
+git clone https://github.com/rexia01/chat2skill.git ~/plugins/chat2skill
 cd ~/plugins/chat2skill && ./install.sh
 ```
 
@@ -125,7 +125,7 @@ In Cursor:
 2. Paste this repository URL into **Search or Paste Link**:
 
 ```text
-https://github.com/rexia01/Chat2Skill
+https://github.com/rexia01/chat2skill
 ```
 
 The Cursor plugin uses:

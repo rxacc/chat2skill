@@ -15,7 +15,7 @@ from typing import Optional
 
 SCHEMA_VERSION = "1"
 DEFAULT_TIMEOUT = 180
-USER_AGENT = "Chat2Skill/0.1 (+https://github.com/rexia01/Chat2Skill)"
+USER_AGENT = "Chat2Skill/0.1 (+https://github.com/rexia01/chat2skill)"
 
 
 class ApiError(Exception):
