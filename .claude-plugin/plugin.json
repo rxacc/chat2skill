@@ -1,7 +1,7 @@
 {
   "name": "chat2skill",
-  "version": "0.1.2",
-  "description": "Automatically learn reusable skills from your coding-agent conversations and inject them into future sessions.",
+  "version": "0.1.3",
+  "description": "Automatically learn reusable skills from Claude Code conversations. Includes one /chat2skill skill plus UserPromptSubmit and Stop hooks.",
   "author": {
     "name": "Chat2Skill contributors"
   },

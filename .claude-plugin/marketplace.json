@@ -5,19 +5,16 @@
   },
   "metadata": {
     "description": "Marketplace for Chat2Skill Claude Code plugins.",
-    "version": "0.1.2"
+    "version": "0.1.3"
   },
   "plugins": [
     {
       "name": "chat2skill",
       "source": "./",
-      "description": "Automatically learn reusable skills from Claude Code conversations and inject them into future sessions.",
-      "version": "0.1.2",
+      "description": "Automatically learn reusable skills from Claude Code conversations and inject them into future sessions. Includes one /chat2skill skill plus UserPromptSubmit and Stop hooks.",
+      "version": "0.1.3",
       "skills": [
         "./skills/chat2skill"
-      ],
-      "hooks": [
-        "./hooks/hooks.json"
       ],
       "tags": [
         "skills",
