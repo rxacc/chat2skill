@@ -16,6 +16,10 @@ All learned data lives under `~/.chat2skill/` (override with `CHAT2SKILL_HOME`):
 - `skills/<user_id>/<skill-name>/SKILL.md` — generated skills
 - `skills/<user_id>/PROJECT_SKILL.md` — project-level summary
 - `hook-events.log` — hook activity log
+- Stop hooks include a response guard and a completion review gate. The
+  completion review gate compares the latest actionable user request with the
+  final assistant response and blocks high-confidence gaps where completion is
+  claimed without evidence or scope reconciliation.
 
 ## Update Skills From the Latest Session
 
@@ -36,6 +40,8 @@ python3 <plugin-root>/scripts/retrieve_for_prompt.py "the user's current task te
 ```
 
 Inject the returned prompt snippet into the working context before responding.
+The automatic `UserPromptSubmit` hook injects the project summary plus
+prompt-relevant detailed skills when both exist.
 
 ## Rules
 - Extraction runs on the Chat2Skill cloud using the api key from `~/.chat2skill/config.json`. Without a key, the server falls back to lower-quality heuristics.
