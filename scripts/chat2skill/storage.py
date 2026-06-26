@@ -645,6 +645,49 @@ def save_memory_items(items: List[MemoryItem], user_id: str, skill_name: Optiona
     conn.close()
 
 
+def load_skill_memory_items(
+    user_id: str,
+    skill_names: Optional[List[str]] = None,
+) -> dict[str, List[dict]]:
+    """Load C2S evidence items grouped by source skill name."""
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    c = conn.cursor()
+    params: list[str] = [user_id]
+    where = "WHERE user_id = ?"
+    if skill_names:
+        placeholders = ",".join("?" for _ in skill_names)
+        where += f" AND skill_name IN ({placeholders})"
+        params.extend(skill_names)
+    c.execute(
+        f"""
+        SELECT skill_name, item_type, title, description, content, evidence,
+               source_session, confidence, created_at
+        FROM skill_memory_items
+        {where}
+        ORDER BY skill_name, confidence DESC, created_at DESC
+        """,
+        params,
+    )
+    grouped: dict[str, List[dict]] = {}
+    for row in c.fetchall():
+        skill_name = row["skill_name"] or ""
+        grouped.setdefault(skill_name, []).append(
+            {
+                "item_type": row["item_type"] or "",
+                "title": row["title"] or "",
+                "description": row["description"] or "",
+                "content": row["content"] or "",
+                "evidence": row["evidence"] or "",
+                "source_session": row["source_session"] or "",
+                "confidence": float(row["confidence"] or 0.0),
+                "created_at": row["created_at"] or "",
+            }
+        )
+    conn.close()
+    return grouped
+
+
 def _save_memory_dicts(items: List[dict], user_id: str, skill_name: Optional[str] = None):
     conn = sqlite3.connect(str(DB_PATH))
     c = conn.cursor()

@@ -11,9 +11,9 @@ from unittest.mock import patch
 ROOT = Path(__file__).resolve().parents[1]
 sys.path.insert(0, str(ROOT / "scripts"))
 
-from chat2skill import memory_client
+from chat2skill import memory_client, runner
 from chat2skill.context_store import apply_memory_result, load_context, save_context
-from chat2skill.models import Skill
+from chat2skill.models import MemoryItem, Skill
 
 
 def _config() -> dict:
@@ -331,7 +331,7 @@ class MemoryClientTests(unittest.TestCase):
             project_dir.mkdir(parents=True)
             project_file = project_dir / "PROJECT_SKILL.md"
             project_file.write_text(
-                "---\nname: project-skill\nlanguage: zh-Hans\n---\n\n# 项目技能",
+                "---\nname: project-skill\nlanguage: en\n---\n\n# Project Skill",
                 encoding="utf-8",
             )
 
@@ -349,13 +349,125 @@ class MemoryClientTests(unittest.TestCase):
                     saved = memory_client.storage.load_project_skill("user-1")
 
             self.assertIsNotNone(synced)
-            self.assertIn("项目技能", synced["content"])
-            self.assertEqual(synced["language"], "zh-Hans")
+            self.assertIn("Project Skill", synced["content"])
+            self.assertEqual(synced["language"], "en")
             self.assertEqual(saved["name"], "project-skill")
             self.assertEqual(saved["language"], "en")
             self.assertEqual(saved["source_skill_count"], 3)
             self.assertEqual(saved["source_memory_count"], 2)
             self.assertIn("Project Skill", saved["content"])
+
+    def test_rebuild_project_skill_rejects_incomplete_cloud_content(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "c2s.db"
+            skill_dir = Path(tmp) / "skills"
+            project_dir = skill_dir / "user-1"
+            project_dir.mkdir(parents=True)
+            project_file = project_dir / "PROJECT_SKILL.md"
+            original_content = "---\nname: project-skill\nlanguage: en\n---\n\n# Existing"
+            project_file.write_text(original_content, encoding="utf-8")
+
+            with patch.object(runner.storage, "DB_PATH", db_path):
+                with patch.object(runner.storage, "SKILL_DIR", skill_dir):
+                    runner.storage.init_db()
+                    runner.storage.save_project_skill(
+                        "user-1",
+                        original_content,
+                        file_path=project_file,
+                        source_skill_count=1,
+                    )
+                    runner.storage.save_skill(
+                        Skill(
+                            name="active-source",
+                            description="Active source skill.",
+                            content="Use the existing source skill.",
+                            skill_type="procedure",
+                            status="active",
+                            confidence=0.9,
+                        ),
+                        user_id="user-1",
+                    )
+                    with patch.object(
+                        runner.api_client,
+                        "project_skill",
+                        return_value={"content": "---\nname: project-skill\n---\n\n- **"},
+                    ):
+                        with self.assertRaises(runner.ApiError):
+                            runner.rebuild_project_skill(
+                                "user-1",
+                                {"api_url": "https://api.example.test"},
+                            )
+                    saved = runner.storage.load_project_skill("user-1")
+
+            self.assertEqual(project_file.read_text(encoding="utf-8"), original_content)
+            self.assertEqual(saved["content"], original_content)
+
+    def test_rebuild_project_skill_sends_compact_skill_evidence(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "c2s.db"
+            skill_dir = Path(tmp) / "skills"
+
+            with patch.object(runner.storage, "DB_PATH", db_path):
+                with patch.object(runner.storage, "SKILL_DIR", skill_dir):
+                    runner.storage.init_db()
+                    runner.storage.save_skill(
+                        Skill(
+                            name="deploy-process",
+                            description="Use the deploy process.",
+                            content="x" * 3000,
+                            skill_type="procedure",
+                            status="active",
+                            confidence=0.9,
+                        ),
+                        user_id="user-1",
+                    )
+                    runner.storage.save_memory_items(
+                        [
+                            MemoryItem(
+                                item_type="success",
+                                title="Low value",
+                                description="lower priority",
+                                content="low",
+                                evidence="low evidence",
+                                source_session="s1",
+                                confidence=0.9,
+                                created_at="2026-01-01T00:00:00",
+                            ),
+                            MemoryItem(
+                                item_type="constraint",
+                                title="Keep rollback",
+                                description="user requires rollback validation",
+                                content="rollback validation is required",
+                                evidence="explicit correction",
+                                source_session="s2",
+                                confidence=0.7,
+                                created_at="2026-01-02T00:00:00",
+                            ),
+                        ],
+                        user_id="user-1",
+                        skill_name="deploy-process",
+                    )
+                    with patch.object(
+                        runner.api_client,
+                        "project_skill",
+                        return_value={
+                            "content": "---\nname: project-skill\nlanguage: en\n---\n\n# Project Skill"
+                        },
+                    ) as project_skill:
+                        runner.rebuild_project_skill(
+                            "user-1",
+                            {"api_url": "https://api.example.test"},
+                        )
+                    payload = project_skill.call_args.args[1]
+                    skill_payload = payload["skills"][0]
+                    saved = runner.storage.load_project_skill("user-1")
+
+            self.assertEqual(len(skill_payload["content"]), 2215)
+            self.assertTrue(skill_payload["content"].endswith("\n...[truncated]"))
+            self.assertEqual(skill_payload["embedding_vector"], [])
+            self.assertEqual(skill_payload["memory_items"][0]["item_type"], "constraint")
+            self.assertEqual(skill_payload["memory_items"][0]["title"], "Keep rollback")
+            self.assertEqual(saved["source_memory_count"], 2)
 
     def test_apply_memory_result_updates_existing_memory(self):
         context = {

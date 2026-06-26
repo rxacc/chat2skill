@@ -7,10 +7,13 @@ the project-level skill.
 
 from __future__ import annotations
 
+import dataclasses
+from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
 
 from . import api_client, storage
+from .api_client import ApiError
 from .config import backend_name, llm_payload
 from .memory_client import commit_transcript
 from .maintenance import SkillMaintainer
@@ -24,6 +27,19 @@ EXISTING_SKILLS_LIMIT = 30
 PROJECT_SKILL_FILE = "PROJECT_SKILL.md"
 PROJECT_SKILL_NAME = "project-skill"
 LEGACY_PROJECT_SUMMARY_NAME = "project-chat2skill-summary"
+PROJECT_SKILL_CONTENT_LIMIT = 2200
+PROJECT_SKILL_MEMORY_ITEMS_PER_SKILL = 6
+PROJECT_SKILL_MEMORY_TITLE_LIMIT = 160
+PROJECT_SKILL_MEMORY_DESCRIPTION_LIMIT = 240
+PROJECT_SKILL_MEMORY_CONTENT_LIMIT = 520
+PROJECT_SKILL_MEMORY_EVIDENCE_LIMIT = 360
+PROJECT_SKILL_MEMORY_TYPE_PRIORITY = {
+    "constraint": 0,
+    "specific_entity": 1,
+    "failure_cause": 2,
+    "failure_memory": 3,
+    "success": 4,
+}
 
 
 def run_extraction(
@@ -111,25 +127,45 @@ def rebuild_project_skill(
     if not skills:
         return None
 
+    memory_items_by_skill = storage.load_skill_memory_items(
+        user_id,
+        [skill.name for skill in skills],
+    )
+    payload_skills = [
+        _project_skill_payload(skill, memory_items_by_skill.get(skill.name, []))
+        for skill in skills
+    ]
+    source_memory_count = sum(len(skill.get("memory_items") or []) for skill in payload_skills)
     payload = {
         "user_id": user_id,
-        "skills": [s.to_dict() for s in skills],
+        "skills": payload_skills,
         "recent_messages": recent_messages or [],
         "existing_language": _existing_summary_language(user_id),
         "llm": llm_payload(config),
     }
-    response = api_client.project_skill(config["api_url"], payload)
+    try:
+        response = api_client.project_skill(config["api_url"], payload)
+    except (ApiError, TimeoutError, OSError) as exc:
+        raise ApiError(f"project skill generation failed: {type(exc).__name__}: {exc}") from exc
+
+    raw_content = response.get("content") if isinstance(response, dict) else None
+    if not isinstance(raw_content, str) or not raw_content.strip():
+        raise ApiError("project skill generation returned empty content")
+
+    content = _normalize_project_skill_content(raw_content)
+    if _looks_truncated_project_skill(content):
+        raise ApiError("project skill generation returned incomplete content")
 
     out_dir = storage.SKILL_DIR / user_id
     out_dir.mkdir(parents=True, exist_ok=True)
     out_path = out_dir / PROJECT_SKILL_FILE
-    content = response["content"]
     out_path.write_text(content, encoding="utf-8")
     storage.save_project_skill(
         user_id,
         content,
         file_path=out_path,
         source_skill_count=len(skills),
+        source_memory_count=source_memory_count,
     )
     return out_path
 
@@ -197,3 +233,84 @@ def _existing_summary_language(user_id: str) -> Optional[str]:
         return None
     match = re.search(r"^language:\s*([A-Za-z-]+)\s*$", head, flags=re.MULTILINE)
     return match.group(1) if match else None
+
+
+def _project_skill_payload(skill: Skill, memory_items: Optional[list[dict]] = None) -> dict:
+    payload = dataclasses.asdict(skill)
+    payload["content"] = _cap_text(skill.content or "", PROJECT_SKILL_CONTENT_LIMIT)
+    payload["embedding_vector"] = []
+    payload["memory_items"] = _compact_project_skill_memory_items(memory_items or [])
+    return payload
+
+
+def _compact_project_skill_memory_items(items: list[dict]) -> list[dict]:
+    ranked = sorted(
+        items,
+        key=lambda item: (
+            PROJECT_SKILL_MEMORY_TYPE_PRIORITY.get(str(item.get("item_type") or ""), 99),
+            -float(item.get("confidence") or 0.0),
+            _created_at_desc_value(str(item.get("created_at") or "")),
+        ),
+    )
+    compact = []
+    for item in ranked[:PROJECT_SKILL_MEMORY_ITEMS_PER_SKILL]:
+        compact.append(
+            {
+                "item_type": str(item.get("item_type") or ""),
+                "title": _cap_text(str(item.get("title") or ""), PROJECT_SKILL_MEMORY_TITLE_LIMIT),
+                "description": _cap_text(
+                    str(item.get("description") or ""),
+                    PROJECT_SKILL_MEMORY_DESCRIPTION_LIMIT,
+                ),
+                "content": _cap_text(
+                    str(item.get("content") or ""),
+                    PROJECT_SKILL_MEMORY_CONTENT_LIMIT,
+                ),
+                "evidence": _cap_text(
+                    str(item.get("evidence") or ""),
+                    PROJECT_SKILL_MEMORY_EVIDENCE_LIMIT,
+                ),
+                "source_session": str(item.get("source_session") or ""),
+                "confidence": float(item.get("confidence") or 0.0),
+            }
+        )
+    return compact
+
+
+def _created_at_desc_value(value: str) -> float:
+    if not value:
+        return 0.0
+    try:
+        return -datetime.fromisoformat(value.replace("Z", "+00:00")).timestamp()
+    except ValueError:
+        return 0.0
+
+
+def _normalize_project_skill_content(content: str) -> str:
+    if not content.strip():
+        return content
+    normalized = content
+    normalized = normalized.replace("name: project-chat2skill-summary", "name: project-skill", 1)
+    return normalized
+
+
+def _looks_truncated_project_skill(content: str) -> bool:
+    stripped = content.rstrip()
+    if not stripped:
+        return True
+    tail = stripped.splitlines()[-1].strip()
+    if tail in {"-", "- **", "**", "##", "###"}:
+        return True
+    if tail.startswith("- **") and tail.count("**") == 1:
+        return True
+    if stripped.count("```") % 2:
+        return True
+    if stripped.count("---") < 2:
+        return True
+    return False
+
+
+def _cap_text(text: str, max_chars: int) -> str:
+    if len(text) <= max_chars:
+        return text
+    return text[:max_chars].rstrip() + "\n...[truncated]"
