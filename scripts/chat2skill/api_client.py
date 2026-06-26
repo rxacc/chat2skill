@@ -15,7 +15,7 @@ from typing import Optional
 
 SCHEMA_VERSION = "1"
 DEFAULT_TIMEOUT = 180
-USER_AGENT = "Chat2Skill/0.1 (+https://github.com/rexia01/chat2skill)"
+USER_AGENT = "Chat2Skill/0.1 (+https://github.com/rxacc/chat2skill)"
 
 
 class ApiError(Exception):
@@ -28,6 +28,14 @@ def extract(api_url: str, payload: dict, timeout: int = DEFAULT_TIMEOUT) -> dict
 
 def project_skill(api_url: str, payload: dict, timeout: int = DEFAULT_TIMEOUT) -> dict:
     return _post_json(f"{api_url.rstrip('/')}/v1/project-skill", payload, timeout)
+
+
+def unified_learn(api_url: str, payload: dict, timeout: int = DEFAULT_TIMEOUT) -> dict:
+    return _post_json(f"{api_url.rstrip('/')}/v1/unified/learn", payload, timeout)
+
+
+def unified_retrieve(api_url: str, payload: dict, timeout: int = DEFAULT_TIMEOUT) -> dict:
+    return _post_json(f"{api_url.rstrip('/')}/v1/unified/retrieve", payload, timeout)
 
 
 def _post_json(url: str, payload: dict, timeout: int) -> dict:

@@ -16,10 +16,7 @@ All learned data lives under `~/.chat2skill/` (override with `CHAT2SKILL_HOME`):
 - `skills/<user_id>/<skill-name>/SKILL.md` — generated skills
 - `skills/<user_id>/PROJECT_SKILL.md` — project-level summary
 - `hook-events.log` — hook activity log
-- Stop hooks include a response guard and a completion review gate. The
-  completion review gate compares the latest actionable user request with the
-  final assistant response and blocks high-confidence gaps where completion is
-  claimed without evidence or scope reconciliation.
+- Stop hooks include a response guard for learned hard wording constraints.
 
 ## Update Skills From the Latest Session
 

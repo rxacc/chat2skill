@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from chat2skill import runner
 from chat2skill.api_client import ApiError
 from chat2skill.config import DATA_HOME, load_config
+from chat2skill.memory_client import MemoryClientError
 from chat2skill.hookio import log_event
 from chat2skill.transcripts import parse_transcript
 
@@ -123,11 +124,14 @@ def coalesce_jobs(jobs: list[dict[str, Any]]) -> list[dict[str, Any]]:
 def process_job(job: dict[str, Any], config: dict) -> None:
     user_id = str(job["user_id"])
     session_file = Path(str(job["session_file"])).expanduser()
+    project_dir = str(job.get("project_dir") or "")
 
     log_event("StopWorker.job_start", user_id=user_id, session_file=str(session_file))
     try:
-        result = runner.run_extraction(session_file, user_id, config)
-    except ApiError as exc:
+        result = runner.run_extraction(
+            session_file, user_id, config, project_dir=project_dir
+        )
+    except (ApiError, MemoryClientError) as exc:
         log_event("StopWorker.extract_failed", user_id=user_id, error=str(exc))
         return
     except Exception as exc:  # noqa: BLE001 — worker must survive any job

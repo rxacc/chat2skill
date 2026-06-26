@@ -1,12 +1,12 @@
 {
   "name": "chat2skill",
   "version": "0.1.3",
-  "description": "Automatically learn reusable skills from Claude Code conversations. Includes one /chat2skill skill, UserPromptSubmit, Stop learning, Stop response guard, and Stop completion review hooks.",
+  "description": "Automatically learn reusable skills and memory from Claude Code conversations. Includes one /chat2skill skill, UserPromptSubmit, Stop learning, and Stop response guard hooks.",
   "author": {
     "name": "Chat2Skill contributors"
   },
-  "homepage": "https://github.com/rexia01/chat2skill",
-  "repository": "https://github.com/rexia01/chat2skill",
+  "homepage": "https://github.com/rxacc/chat2skill",
+  "repository": "https://github.com/rxacc/chat2skill",
   "license": "MIT",
   "keywords": [
     "claude-code",

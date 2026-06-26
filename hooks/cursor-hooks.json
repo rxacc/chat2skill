@@ -15,10 +15,6 @@
       {
         "command": "python3 \"${CURSOR_PLUGIN_ROOT}/scripts/hook_stop_response_guard.py\"",
         "timeout": 15
-      },
-      {
-        "command": "python3 \"${CURSOR_PLUGIN_ROOT}/scripts/hook_stop_completion_review.py\"",
-        "timeout": 15
       }
     ]
   }

@@ -120,7 +120,7 @@ Chat2Skill has three nested loops:
 ```
 your machine                                Chat2Skill cloud
 ─────────────────────────────────────       ─────────────────────────
-Stop hook ──► response guard ──► completion review ──► continue on violation
+Stop hook ──► response guard ──► continue on violation
      │
      └────► queue ──► worker ─────────────► POST /v1/extract
                           │                 (stateless algorithm,
@@ -146,12 +146,6 @@ UserPromptSubmit hook ◄── local retrieval   (project summary + detailed sk
   never prose examples or code identifiers. The default guard mode is
   `adaptive`: repeated violations are throttled with a growing cooldown and
   logged without blocking every turn.
-- **Completion review.** The Stop hook can reconcile the latest actionable
-  user request against the final assistant response. For concrete deliverables,
-  it checks that completion claims include evidence, covered scope, unchecked
-  scope, or an explicit verification gap. This creates a generic requirement
-  reconciliation loop across coding, writing, reports, research, operations,
-  and other task types.
 - **Cost.** A typical extraction makes ~4 LLM calls on your key
   (detect, analyze, generate, judge); replay validation against your
   history adds up to 5 more. Conversations are windowed (last ~40
@@ -165,15 +159,26 @@ UserPromptSubmit hook ◄── local retrieval   (project summary + detailed sk
 ```bash
 mkdir -p ~/.chat2skill
 cp config.example.json ~/.chat2skill/config.json
-# edit ~/.chat2skill/config.json: set llm.api_key (and base_url/model)
+# edit ~/.chat2skill/config.json: set api_url and llm.api_key
 ```
 
-Use one config file. For OpenAI, write `~/.chat2skill/config.json` like this:
+Use one config file. The default backend is `memory`, which calls the unified
+Chat2Skill API and stores returned project memory under
+`~/.chat2skill/contexts/`. Skills stay under `~/.chat2skill/skills/`.
+
+For OpenAI-compatible models, write `~/.chat2skill/config.json` like this:
 
 ```json
 {
+  "backend": "memory",
   "api_url": "https://api.chat2skill.com",
   "user_id": "alice",
+  "memory": {
+    "target_model": "claude",
+    "token_budget": 4000,
+    "memory_ratio": 0.6,
+    "skill_top_k": 6
+  },
   "llm": {
     "api_key": "your-openai-compatible-api-key",
     "base_url": null,
@@ -186,8 +191,15 @@ For DeepSeek, write `~/.chat2skill/config.json` like this:
 
 ```json
 {
+  "backend": "memory",
   "api_url": "https://api.chat2skill.com",
   "user_id": "alice",
+  "memory": {
+    "target_model": "claude",
+    "token_budget": 4000,
+    "memory_ratio": 0.6,
+    "skill_top_k": 6
+  },
   "llm": {
     "api_key": "your-deepseek-api-key",
     "base_url": "https://api.deepseek.com",
@@ -201,13 +213,17 @@ variables if you prefer shell config or need to override the JSON file.
 
 | Environment variable | JSON key | Default | Description |
 | --- | --- | --- | --- |
-| `CHAT2SKILL_API_URL` | `api_url` | `https://api.chat2skill.com` | Chat2Skill API endpoint used for extraction and project-skill generation. |
+| `CHAT2SKILL_BACKEND` | `backend` | `memory` | Backend used by hooks. Use `memory` for unified memory+skills, or `chat2skill` for the legacy skill-only flow. |
+| `CHAT2SKILL_API_URL` | `api_url` | `https://api.chat2skill.com` | Chat2Skill API endpoint used for unified memory+skills learn/retrieve and legacy extraction. |
+| `CHAT2SKILL_MEMORY_TARGET_MODEL` | `memory.target_model` | `claude` | Renderer target passed to unified retrieve. |
+| `CHAT2SKILL_MEMORY_TOKEN_BUDGET` | `memory.token_budget` | `4000` | Total prompt-injection token budget for memory plus skills. |
+| `CHAT2SKILL_MEMORY_MEMORY_RATIO` | `memory.memory_ratio` | `0.6` | Fraction of retrieval budget initially allocated to memory. |
+| `CHAT2SKILL_MEMORY_SKILL_TOP_K` | `memory.skill_top_k` | `6` | Maximum detailed skills returned by unified retrieve. |
 | `OPENAI_API_KEY` | `llm.api_key` | unset | Your OpenAI-compatible LLM API key. If unset, extraction falls back to lower-quality heuristics. |
 | `OPENAI_BASE_URL` | `llm.base_url` | `null` | Optional OpenAI-compatible base URL. Use `null` for OpenAI; use `https://api.deepseek.com` for DeepSeek. |
 | `CHAT2SKILL_MODEL` | `llm.model` | `gpt-4.1` | Model used for detect/analyze/generate/judge calls. |
 | `CHAT2SKILL_USER_ID` | `user_id` | system username | Base namespace for local skills and profile data. Project-specific skills use `<user>__project__<slug>`. |
 | `CHAT2SKILL_RESPONSE_GUARD` | unset | `adaptive` | Stop response guard mode. Use `adaptive`, `block-once`, `strict`, `warn-only`, or `off`. Structured `response_guard.mode: evidence_based_terms` allows explicit evidence-gap disclosure while still blocking unsupported hedging. |
-| `CHAT2SKILL_COMPLETION_REVIEW` | unset | `strict` | Stop completion review mode. Use `strict`, `warn-only`, or `off`. Strict mode blocks high-confidence gaps where the final response claims completion without matching the original request to evidence and scope. |
 
 ### 2a. Claude Code
 
@@ -306,7 +322,6 @@ If your agent supports hooks, point them at:
 - prompt-submit: `python3 <plugin-root>/scripts/hook_user_prompt_submit.py`
 - session-end learning: `python3 <plugin-root>/scripts/hook_stop.py`
 - session-end response guard: `python3 <plugin-root>/scripts/hook_stop_response_guard.py`
-- session-end completion review: `python3 <plugin-root>/scripts/hook_stop_completion_review.py`
 
 No hooks? Use the CLIs:
 
@@ -341,14 +356,11 @@ Chat2Skill needs two capabilities for the full automatic loop:
   The default `adaptive` mode prevents repeated Stop-hook rewrite loops, and
   evidence-based rules distinguish verified conclusions from missing-evidence
   disclosures.
-- **Reconcile completion:** a stop/session-end hook with access to the
-  transcript and final assistant message that can run
-  `scripts/hook_stop_completion_review.py`.
 
 | Agent | Current support | Notes |
 | --- | --- | --- |
-| Claude Code | Native plugin marketplace | Full automatic support through `.claude-plugin/marketplace.json`, the `chat2skill` skill, and standard `hooks/hooks.json` with `UserPromptSubmit` + `Stop` learning + Stop response guard + Stop completion review. |
-| Codex | Native plugin/local installer | Full automatic support through `.codex-plugin/plugin.json` and `install.sh`, which writes absolute hook paths for the local clone, including the Stop response guard and completion review. |
+| Claude Code | Native plugin marketplace | Full automatic support through `.claude-plugin/marketplace.json`, the `chat2skill` skill, and standard `hooks/hooks.json` with `UserPromptSubmit` + `Stop` learning + Stop response guard. |
+| Codex | Native plugin/local installer | Full automatic support through `.codex-plugin/plugin.json` and `install.sh`, which writes absolute hook paths for the local clone, including the Stop response guard. |
 | Cursor | Native plugin + project rule | Supported through `.cursor-plugin/plugin.json`, `hooks/cursor-hooks.json`, `.cursor/rules/chat2skill.mdc`, and the `chat2skill` skill. Stop learning works from Cursor transcripts, and the response guard runs when Cursor provides final response text. Dynamic per-prompt context injection is limited by Cursor's current `beforeSubmitPrompt` hook behavior. |
 | OpenCode | Server plugin + command | `opencode.json` loads `.opencode/plugins/chat2skill.mjs`, which calls `retrieve_for_prompt.py` and appends relevant snippets to the system prompt. `.opencode/command/chat2skill.md` adds a manual command prompt. |
 | GitHub Copilot | Repository instructions | `.github/copilot-instructions.md` tells Copilot how to run Chat2Skill CLI retrieval/update. Local Copilot CLI hooks can also call Chat2Skill; cloud/ephemeral agents are not equivalent to local persistent hooks. |

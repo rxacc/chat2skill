@@ -1,19 +1,19 @@
 {
   "name": "chat2skill",
   "version": "0.1.3",
-  "description": "Automatically learn reusable skills from coding-agent conversations, retrieve them for future sessions, enforce learned hard response constraints, and review completion against the original request.",
+  "description": "Automatically learn and retrieve coding-agent memory and skills through the unified Memory-backed Chat2Skill API and enforce learned hard response constraints.",
   "author": {
     "name": "Chat2Skill contributors"
   },
   "skills": "./skills/",
   "interface": {
     "displayName": "Chat2Skill",
-    "shortDescription": "Learn and retrieve skills from your daily agent conversations.",
-    "longDescription": "Chat2Skill captures conversations after each session, sends them to the Chat2Skill cloud extraction API (using your own LLM api key), stores the learned skills locally under ~/.chat2skill, injects relevant project summaries and detailed skills into new conversations, and uses Stop hooks to enforce learned hard wording constraints and reconcile completion claims against the original request before a turn ends.",
+    "shortDescription": "Learn and retrieve memory and skills from agent conversations.",
+    "longDescription": "Chat2Skill captures conversations after each session, sends local memory and skill state to the unified Chat2Skill cloud API, stores returned memory deltas under ~/.chat2skill/contexts and learned skills under ~/.chat2skill/skills, injects relevant project memory plus skills into new conversations, and uses Stop hooks to enforce learned hard wording constraints before a turn ends.",
     "developerName": "Chat2Skill contributors",
     "category": "Productivity",
     "capabilities": ["Instructions", "Lifecycle hooks"],
-    "websiteURL": "https://github.com/rexia01/chat2skill",
+    "websiteURL": "https://github.com/rxacc/chat2skill",
     "defaultPrompt": [
       "Use Chat2Skill to retrieve relevant learned skills for this task.",
       "Update Chat2Skill from the latest session.",

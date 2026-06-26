@@ -1,4 +1,11 @@
 {
+  "backend": "memory",
+  "memory": {
+    "target_model": "claude",
+    "token_budget": 4000,
+    "memory_ratio": 0.6,
+    "skill_top_k": 6
+  },
   "api_url": "https://api.chat2skill.com",
   "llm": {
     "api_key": "",

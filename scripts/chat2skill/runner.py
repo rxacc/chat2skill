@@ -11,7 +11,8 @@ from pathlib import Path
 from typing import List, Optional
 
 from . import api_client, storage
-from .config import llm_payload
+from .config import backend_name, llm_payload
+from .memory_client import commit_transcript
 from .maintenance import SkillMaintainer
 from .models import Skill, UserModel
 from .transcripts import parse_transcript
@@ -29,8 +30,18 @@ def run_extraction(
     user_id: str,
     config: dict,
     clean: bool = True,
+    project_dir: str = "",
 ) -> dict:
     """Extract from one transcript. Returns a summary dict for logging."""
+    if backend_name(config) == "memory":
+        return commit_transcript(
+            session_file=session_file,
+            user_id=user_id,
+            config=config,
+            project_dir=project_dir,
+            clean=clean,
+        )
+
     messages = parse_transcript(session_file, clean=clean)
     if len(messages) < 2:
         return {"status": "skipped", "reason": "too_few_messages"}

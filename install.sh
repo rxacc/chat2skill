@@ -108,10 +108,6 @@ write_hooks_json() {
           {
             "type": "command",
             "command": "python3 \"${target_root}/scripts/hook_stop_response_guard.py\""
-          },
-          {
-            "type": "command",
-            "command": "python3 \"${target_root}/scripts/hook_stop_completion_review.py\""
           }
         ]
       }

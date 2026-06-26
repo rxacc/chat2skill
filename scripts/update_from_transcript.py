@@ -21,6 +21,7 @@ def main() -> int:
     parser.add_argument("--latest", action="store_true", help="Process the newest session file.")
     parser.add_argument("--user-id", default=base_user_id())
     parser.add_argument("--no-clean", action="store_true", help="Keep system/noise blocks.")
+    parser.add_argument("--project-dir", default="", help="Project directory for Memory context mapping.")
     args = parser.parse_args()
 
     if args.input:
@@ -39,7 +40,11 @@ def main() -> int:
     for index, session in enumerate(sessions, 1):
         print(f"[{index}/{len(sessions)}] {session}")
         result = runner.run_extraction(
-            session, args.user_id, config, clean=not args.no_clean
+            session,
+            args.user_id,
+            config,
+            clean=not args.no_clean,
+            project_dir=args.project_dir,
         )
         print(json.dumps(result, ensure_ascii=False, indent=2))
         if result.get("status") == "saved":

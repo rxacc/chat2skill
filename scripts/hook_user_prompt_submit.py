@@ -8,7 +8,8 @@ from pathlib import Path
 
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
-from chat2skill.config import base_user_id
+from chat2skill.config import backend_name, base_user_id, load_config
+from chat2skill.memory_client import MemoryClientError, materialize_for_prompt
 from chat2skill.hookio import (
     json_hook_output,
     log_event,
@@ -40,6 +41,65 @@ def main() -> int:
         prompt_preview=prompt[:160],
     )
 
+    config = load_config()
+    if backend_name(config) == "memory":
+        return inject_memory_context(config, project_dir, scoped_user_id, prompt)
+    return inject_chat2skill_context(scoped_user_id, project_dir, prompt)
+
+
+def inject_memory_context(
+    config: dict,
+    project_dir: str,
+    scoped_user_id: str,
+    prompt: str,
+) -> int:
+    try:
+        result = materialize_for_prompt(config, project_dir, prompt, scoped_user_id)
+    except MemoryClientError as exc:
+        log_event(
+            "UserPromptSubmit.memory_failed",
+            project_dir=project_dir,
+            user_id=scoped_user_id,
+            error=str(exc),
+        )
+        return 0
+
+    rendered = str(result.get("rendered_text") or "").strip()
+    if not rendered:
+        log_event(
+            "UserPromptSubmit.done",
+            project_dir=project_dir,
+            user_id=scoped_user_id,
+            backend="memory",
+            retrieved=0,
+        )
+        return 0
+
+    context = (
+        "## Chat2Skill Memory and Skills\n"
+        "Apply this retrieved project memory and relevant skills when they match the current task:\n\n"
+        f"{rendered}\n\n"
+        f"Materialization ID: {result.get('materialization_id')}"
+    )
+    included_skills = (result.get("skills") or {}).get("skills_included") or []
+    if included_skills:
+        record_skill_usage(scoped_user_id, included_skills)
+    json_hook_output(context)
+    log_event(
+        "UserPromptSubmit.done",
+        project_dir=project_dir,
+        user_id=scoped_user_id,
+        backend="memory",
+        materialization_id=result.get("materialization_id"),
+        token_count=result.get("token_count"),
+        coverage_score=(result.get("memory") or {}).get("coverage_score"),
+        memory_retrieved=len((result.get("memory") or {}).get("bullets_included") or []),
+        skills=included_skills,
+    )
+    return 0
+
+
+def inject_chat2skill_context(scoped_user_id: str, project_dir: str, prompt: str) -> int:
     init_db()
     project_skill_path = SKILL_DIR / scoped_user_id / PROJECT_SUMMARY_FILE
     project_skill = ""
@@ -99,6 +159,7 @@ def main() -> int:
         "UserPromptSubmit.done",
         project_dir=project_dir,
         user_id=scoped_user_id,
+        backend="chat2skill",
         retrieved=len(retrieved) + (1 if project_skill else 0),
         included_project_summary=bool(project_skill),
         skills=[item.skill.name for item in retrieved],
