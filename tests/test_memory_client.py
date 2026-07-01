@@ -15,7 +15,9 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from chat2skill import memory_client, runner
 from chat2skill.context_store import apply_memory_result, load_context, save_context
+from chat2skill.i18n import LANGUAGES
 from chat2skill.models import MemoryItem, Skill
+from chat2skill.recall_policy import should_synthesize_recall
 import hook_user_prompt_submit
 import process_stop_queue
 
@@ -32,6 +34,18 @@ def _config() -> dict:
 
 
 class MemoryClientTests(unittest.TestCase):
+    def test_recall_policy_uses_profile_markers(self):
+        self.assertTrue(should_synthesize_recall("pending action 之前我们讨论过什么"))
+        self.assertTrue(should_synthesize_recall("what did we decide last time about pending action"))
+        self.assertFalse(should_synthesize_recall("implement pending action"))
+
+    def test_all_language_profiles_define_recall_markers(self):
+        for code, profile in LANGUAGES.items():
+            with self.subTest(code=code):
+                self.assertGreater(len(profile.recall_direct_markers), 0)
+                self.assertGreater(len(profile.recall_history_markers), 0)
+                self.assertGreater(len(profile.recall_topic_markers), 0)
+
     def test_materialize_uses_local_context_and_records_receipt(self):
         with tempfile.TemporaryDirectory() as tmp:
             context_dir = Path(tmp) / "contexts"
@@ -100,6 +114,83 @@ class MemoryClientTests(unittest.TestCase):
             self.assertGreater(row[2], 0)
             self.assertTrue(db_path.exists())
             self.assertFalse(list(context_dir.rglob("*.json")))
+
+    def test_history_prompt_calls_recall_synthesis_and_prepends_summary(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            context_dir = Path(tmp) / "contexts"
+            db_path = Path(tmp) / "c2s.db"
+            skill_dir = Path(tmp) / "skills"
+
+            with patch("chat2skill.context_store.CONTEXTS_DIR", context_dir):
+                with patch.object(memory_client.storage, "DB_PATH", db_path):
+                    with patch.object(memory_client.storage, "SKILL_DIR", skill_dir):
+                        memory_client.storage.init_db()
+                        save_context(
+                            "/repo/project",
+                            "user-1",
+                            {
+                                "core_memory": "Project discusses pending action.",
+                                "memories": [
+                                    {
+                                        "id": "m1",
+                                        "content": "PendingAction is an independent subsystem.",
+                                        "memory_type": "decision",
+                                        "section": "pending_action",
+                                        "confidence": 0.9,
+                                        "salience": 0.9,
+                                    }
+                                ],
+                                "schemas": [],
+                                "recent_raw_hashes": [],
+                            },
+                        )
+                        with patch.object(
+                            memory_client.api_client,
+                            "unified_recall_synthesize",
+                            return_value={
+                                "llm_used": False,
+                                "recall_summary": "## 回忆整合\n- PendingAction 是独立子系统。",
+                                "memories_included": ["m1"],
+                                "skills_included": [],
+                                "token_count": 20,
+                            },
+                        ) as cloud_recall:
+                            result = memory_client.materialize_for_prompt(
+                                _config(), "/repo/project", "pending action 之前我们讨论过什么", "user-1"
+                            )
+
+            cloud_recall.assert_called_once()
+            self.assertIn("Chat2Skill Recall Summary", result["rendered_text"])
+            self.assertIn("PendingAction 是独立子系统", result["rendered_text"])
+            self.assertEqual(result["recall_synthesis"]["memories_included"], ["m1"])
+
+    def test_non_history_prompt_skips_recall_synthesis(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            context_dir = Path(tmp) / "contexts"
+            db_path = Path(tmp) / "c2s.db"
+            skill_dir = Path(tmp) / "skills"
+
+            with patch("chat2skill.context_store.CONTEXTS_DIR", context_dir):
+                with patch.object(memory_client.storage, "DB_PATH", db_path):
+                    with patch.object(memory_client.storage, "SKILL_DIR", skill_dir):
+                        memory_client.storage.init_db()
+                        save_context(
+                            "/repo/project",
+                            "user-1",
+                            {
+                                "core_memory": "",
+                                "memories": [],
+                                "schemas": [],
+                                "recent_raw_hashes": [],
+                            },
+                        )
+                        with patch.object(memory_client.api_client, "unified_recall_synthesize") as cloud_recall:
+                            result = memory_client.materialize_for_prompt(
+                                _config(), "/repo/project", "implement pending action", "user-1"
+                            )
+
+            cloud_recall.assert_not_called()
+            self.assertNotIn("recall_synthesis", result)
 
     def test_user_prompt_hook_records_final_injected_prompt(self):
         with tempfile.TemporaryDirectory() as tmp:

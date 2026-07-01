@@ -69,7 +69,7 @@ def inject_memory_context(
 
     context = (
         "## Chat2Skill Memory and Skills\n"
-        "Apply this retrieved project memory and relevant skills when they match the current task:\n\n"
+        "Apply this retrieved project memory, recall summary, and relevant skills when they match the current task:\n\n"
         f"{rendered}\n\n"
         f"Materialization ID: {result.get('materialization_id')}"
     )

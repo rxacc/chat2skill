@@ -23,6 +23,9 @@ class LanguageProfile:
     confirmation_markers: tuple[str, ...]
     concise_markers: tuple[str, ...]
     no_modification_markers: tuple[str, ...]
+    recall_direct_markers: tuple[str, ...]
+    recall_history_markers: tuple[str, ...]
+    recall_topic_markers: tuple[str, ...]
     template: Dict[str, str]
 
 
@@ -42,6 +45,9 @@ def _build_languages() -> Dict[str, LanguageProfile]:
         "confirmation_markers",
         "concise_markers",
         "no_modification_markers",
+        "recall_direct_markers",
+        "recall_history_markers",
+        "recall_topic_markers",
     )
 
     for item in data["languages"]:

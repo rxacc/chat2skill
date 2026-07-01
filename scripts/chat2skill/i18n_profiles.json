@@ -53,7 +53,10 @@
       "plan_markers": ["plan", "outline", "approach", "proposal", "first"],
       "confirmation_markers": ["confirm", "approve", "approval", "before you", "wait for"],
       "concise_markers": ["concise", "shorter", "brief", "too long"],
-      "no_modification_markers": ["do not modify", "don't modify", "read-only", "do not edit", "don't edit"]
+      "no_modification_markers": ["do not modify", "don't modify", "read-only", "do not edit", "don't edit"],
+      "recall_direct_markers": ["recall", "do you remember", "what did we discuss", "what did we decide", "discussed before", "last time", "previously discussed"],
+      "recall_history_markers": ["previous", "previously", "earlier", "last time"],
+      "recall_topic_markers": ["plan", "decide", "decision", "discuss", "discussion", "approach"]
     },
     {
       "code": "zh-Hans",
@@ -64,7 +67,10 @@
       "plan_markers": ["计划", "方案", "规划", "先", "步骤", "思路"],
       "confirmation_markers": ["确认", "同意", "批准", "我确认", "等我确认"],
       "concise_markers": ["简洁", "简短", "太长", "短一点"],
-      "no_modification_markers": ["不要改", "别改", "不要修改", "只读", "别动文件"]
+      "no_modification_markers": ["不要改", "别改", "不要修改", "只读", "别动文件"],
+      "recall_direct_markers": ["还记得", "记不记得", "回忆一下", "回顾一下", "我们讨论过", "我们之前讨论", "之前我们讨论", "上次讨论", "当时讨论", "之前怎么", "之前说", "之前提到", "之前确定", "上次说", "当时说", "过去讨论"],
+      "recall_history_markers": ["之前", "上次", "当时", "以前", "过去"],
+      "recall_topic_markers": ["讨论", "方案", "决定", "确定", "说过", "提到", "怎么定", "怎么说"]
     },
     {
       "code": "ja",
@@ -75,7 +81,10 @@
       "plan_markers": ["計画", "方針", "手順", "先に", "プラン"],
       "confirmation_markers": ["確認", "承認", "許可", "同意"],
       "concise_markers": ["簡潔", "短く", "長すぎ"],
-      "no_modification_markers": ["変更しないで", "編集しないで", "読み取り専用"]
+      "no_modification_markers": ["変更しないで", "編集しないで", "読み取り専用"],
+      "recall_direct_markers": ["覚えていますか", "覚えてる", "思い出して", "振り返って", "前に話した", "以前話した", "前回話した", "前回の議論"],
+      "recall_history_markers": ["以前", "前回", "その時", "過去", "前に"],
+      "recall_topic_markers": ["議論", "計画", "方針", "決定", "話した", "言及", "どう決めた"]
     },
     {
       "code": "ko",
@@ -86,7 +95,10 @@
       "plan_markers": ["계획", "방안", "절차", "먼저", "플랜"],
       "confirmation_markers": ["확인", "승인", "동의", "허락"],
       "concise_markers": ["간결", "짧게", "너무 길"],
-      "no_modification_markers": ["수정하지 마", "편집하지 마", "읽기 전용"]
+      "no_modification_markers": ["수정하지 마", "편집하지 마", "읽기 전용"],
+      "recall_direct_markers": ["기억해", "기억나", "회상해", "되짚어", "전에 논의", "이전에 논의", "지난번 논의", "전에 말한"],
+      "recall_history_markers": ["이전", "지난번", "그때", "과거", "전에"],
+      "recall_topic_markers": ["논의", "계획", "방안", "결정", "말한", "언급", "어떻게 정했"]
     },
     {
       "code": "fr",
@@ -97,7 +109,10 @@
       "plan_markers": ["plan", "approche", "d'abord", "étapes"],
       "confirmation_markers": ["confirmer", "confirmation", "approuver", "accord"],
       "concise_markers": ["concis", "court", "trop long"],
-      "no_modification_markers": ["ne modifie pas", "ne change pas", "lecture seule"]
+      "no_modification_markers": ["ne modifie pas", "ne change pas", "lecture seule"],
+      "recall_direct_markers": ["tu te souviens", "rappelle-toi", "récapitulons", "ce dont nous avons discuté", "nous avions discuté", "la dernière fois"],
+      "recall_history_markers": ["avant", "précédemment", "la dernière fois", "à ce moment-là", "passé"],
+      "recall_topic_markers": ["discussion", "plan", "approche", "décision", "décidé", "mentionné", "convenu"]
     },
     {
       "code": "ar",
@@ -108,7 +123,10 @@
       "plan_markers": ["خطة", "نهج", "أولاً", "خطوات"],
       "confirmation_markers": ["تأكيد", "وافق", "موافقة", "إذن"],
       "concise_markers": ["مختصر", "قصير", "طويل جداً"],
-      "no_modification_markers": ["لا تعدل", "لا تغير", "للقراءة فقط"]
+      "no_modification_markers": ["لا تعدل", "لا تغير", "للقراءة فقط"],
+      "recall_direct_markers": ["هل تتذكر", "تذكر", "راجع ما ناقشنا", "ما ناقشناه", "ناقشنا سابقاً", "المرة السابقة"],
+      "recall_history_markers": ["سابقاً", "قبل", "المرة السابقة", "حينها", "في الماضي"],
+      "recall_topic_markers": ["ناقشنا", "خطة", "نهج", "قرار", "قررنا", "ذكرنا", "اتفقنا"]
     },
     {
       "code": "de",
@@ -119,7 +137,10 @@
       "plan_markers": ["plan", "ansatz", "zuerst", "schritte"],
       "confirmation_markers": ["bestätigen", "genehmigen", "zustimmen", "freigabe"],
       "concise_markers": ["knapp", "kurz", "zu lang"],
-      "no_modification_markers": ["nicht ändern", "nicht bearbeiten", "nur lesen"]
+      "no_modification_markers": ["nicht ändern", "nicht bearbeiten", "nur lesen"],
+      "recall_direct_markers": ["erinnerst du dich", "erinnere dich", "fass nochmal zusammen", "was wir besprochen haben", "wir hatten besprochen", "letztes mal"],
+      "recall_history_markers": ["vorher", "zuvor", "früher", "letztes mal", "damals"],
+      "recall_topic_markers": ["besprochen", "plan", "ansatz", "entscheidung", "entschieden", "erwähnt", "vereinbart"]
     },
     {
       "code": "ru",
@@ -130,7 +151,10 @@
       "plan_markers": ["план", "подход", "сначала", "шаги"],
       "confirmation_markers": ["подтверди", "подтверждение", "одобрение", "согласие"],
       "concise_markers": ["кратко", "короче", "слишком длинно"],
-      "no_modification_markers": ["не изменяй", "не редактируй", "только чтение"]
+      "no_modification_markers": ["не изменяй", "не редактируй", "только чтение"],
+      "recall_direct_markers": ["помнишь", "вспомни", "давай вспомним", "что мы обсуждали", "мы раньше обсуждали", "в прошлый раз"],
+      "recall_history_markers": ["раньше", "ранее", "в прошлый раз", "тогда", "в прошлом"],
+      "recall_topic_markers": ["обсуждали", "план", "подход", "решение", "решили", "упоминали", "договорились"]
     }
   ],
   "detection": [

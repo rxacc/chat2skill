@@ -23,6 +23,7 @@ from .context_store import (
     save_materialization,
 )
 from .models import Skill, UserModel
+from .recall_policy import should_synthesize_recall
 from .retrieval import MemoryRetriever, SkillRetriever
 from .transcripts import parse_transcript
 
@@ -35,6 +36,9 @@ DEFAULT_TOKEN_BUDGET = 4000
 DEFAULT_MEMORY_RATIO = 0.6
 DEFAULT_PROMPT_MEMORY_TOP_K = 12
 DEFAULT_PROMPT_SKILL_TOP_K = 6
+DEFAULT_RECALL_SYNTHESIS_MEMORY_TOP_K = 32
+DEFAULT_RECALL_SYNTHESIS_SKILL_TOP_K = 8
+DEFAULT_RECALL_SYNTHESIS_TOKEN_BUDGET = 1200
 DEFAULT_LEARN_MEMORY_TOP_K = 40
 DEFAULT_LEARN_SKILL_TOP_K = 20
 DEFAULT_LEARN_MAX_MESSAGES = 120
@@ -82,6 +86,17 @@ def materialize_for_prompt(
         token_budget=options["token_budget"],
         memory_ratio=options["memory_ratio"],
     )
+    recall_synthesis = _recall_synthesis_for_prompt(
+        config=config,
+        project_dir=project_dir,
+        prompt=prompt,
+        user_id=user_id,
+        context=context,
+        skills=skills,
+        options=options,
+    )
+    if recall_synthesis:
+        result = _prepend_recall_synthesis(result, recall_synthesis)
     save_materialization(context, result, prompt)
     save_context(project_dir, user_id, context)
     return result
@@ -174,6 +189,15 @@ def _memory_options(config: dict) -> dict[str, Any]:
         "memory_ratio": memory_ratio,
         "prompt_memory_top_k": int(memory.get("prompt_memory_top_k") or DEFAULT_PROMPT_MEMORY_TOP_K),
         "skill_top_k": int(memory.get("skill_top_k") or DEFAULT_PROMPT_SKILL_TOP_K),
+        "recall_synthesis_memory_top_k": int(
+            memory.get("recall_synthesis_memory_top_k") or DEFAULT_RECALL_SYNTHESIS_MEMORY_TOP_K
+        ),
+        "recall_synthesis_skill_top_k": int(
+            memory.get("recall_synthesis_skill_top_k") or DEFAULT_RECALL_SYNTHESIS_SKILL_TOP_K
+        ),
+        "recall_synthesis_token_budget": int(
+            memory.get("recall_synthesis_token_budget") or DEFAULT_RECALL_SYNTHESIS_TOKEN_BUDGET
+        ),
         "learn_memory_top_k": int(memory.get("learn_memory_top_k") or DEFAULT_LEARN_MEMORY_TOP_K),
         "learn_skill_top_k": int(memory.get("learn_skill_top_k") or DEFAULT_LEARN_SKILL_TOP_K),
         "learn_max_messages": int(memory.get("learn_max_messages") or DEFAULT_LEARN_MAX_MESSAGES),
@@ -184,6 +208,91 @@ def _memory_options(config: dict) -> dict[str, Any]:
             memory.get("learn_total_char_limit") or DEFAULT_LEARN_TOTAL_CHAR_LIMIT
         ),
     }
+
+
+def _recall_synthesis_for_prompt(
+    *,
+    config: dict,
+    project_dir: str,
+    prompt: str,
+    user_id: str,
+    context: dict[str, Any],
+    skills: list[Skill],
+    options: dict[str, Any],
+) -> dict[str, Any] | None:
+    if not should_synthesize_recall(prompt):
+        return None
+
+    retrieved_memories = MemoryRetriever().retrieve(
+        prompt,
+        context.get("memories") or [],
+        top_k=options["recall_synthesis_memory_top_k"],
+        active_only=True,
+    )
+    retrieved_skills = SkillRetriever().retrieve(
+        prompt,
+        skills,
+        top_k=options["recall_synthesis_skill_top_k"],
+        active_only=True,
+    )
+    payload = {
+        "user_id": user_id,
+        "query": prompt,
+        "existing_memory": {
+            "core_memory": _cap_chars(str(context.get("core_memory") or ""), CORE_MEMORY_CHAR_LIMIT),
+            "memories": [_memory_payload_for_learn(item.memory) for item in retrieved_memories],
+            "schemas": _schemas_for_memories(
+                context.get("schemas") or [],
+                {str(item.memory.get("id")) for item in retrieved_memories if item.memory.get("id")},
+            ),
+        },
+        "existing_skills": [_skill_payload_for_learn(item.skill) for item in retrieved_skills],
+        "user_profile": storage.load_user_profile(user_id).to_dict(),
+        "token_budget": options["recall_synthesis_token_budget"],
+        "max_memories": options["recall_synthesis_memory_top_k"],
+        "max_skills": options["recall_synthesis_skill_top_k"],
+        "target_model": (config.get("memory") or {}).get("target_model") or "generic",
+        "llm": llm_payload(config),
+    }
+    try:
+        return api_client.unified_recall_synthesize(config["api_url"], payload)
+    except api_client.ApiError:
+        return None
+
+
+def _prepend_recall_synthesis(result: dict[str, Any], synthesis: dict[str, Any]) -> dict[str, Any]:
+    summary = str(synthesis.get("recall_summary") or "").strip()
+    if not summary:
+        return result
+
+    merged = dict(result)
+    section = "## Chat2Skill Recall Summary\n" + summary
+    rendered = str(merged.get("rendered_text") or "").strip()
+    merged["rendered_text"] = section + ("\n\n" + rendered if rendered else "")
+    merged["token_count"] = _estimate_tokens(merged["rendered_text"])
+    merged["recall_synthesis"] = {
+        "llm_used": bool(synthesis.get("llm_used")),
+        "memories_included": synthesis.get("memories_included") or [],
+        "skills_included": synthesis.get("skills_included") or [],
+        "token_count": synthesis.get("token_count"),
+    }
+
+    memory = dict(merged.get("memory") or {})
+    existing_memory_ids = list(memory.get("memories_included") or [])
+    for memory_id in synthesis.get("memories_included") or []:
+        if memory_id not in existing_memory_ids:
+            existing_memory_ids.append(memory_id)
+    memory["memories_included"] = existing_memory_ids
+    merged["memory"] = memory
+
+    skills = dict(merged.get("skills") or {})
+    existing_skill_ids = list(skills.get("skills_included") or [])
+    for skill_name in synthesis.get("skills_included") or []:
+        if skill_name not in existing_skill_ids:
+            existing_skill_ids.append(skill_name)
+    skills["skills_included"] = existing_skill_ids
+    merged["skills"] = skills
+    return merged
 
 
 def _build_local_materialization(
