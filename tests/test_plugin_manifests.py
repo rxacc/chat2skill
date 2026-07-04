@@ -61,9 +61,20 @@ class PluginManifestTests(unittest.TestCase):
             for group in event
             for hook in group["hooks"]
         ]
+        windows_commands = [
+            hook.get("commandWindows", "")
+            for event in install_hooks["hooks"].values()
+            for group in event
+            for hook in group["hooks"]
+        ]
         self.assertTrue(all("CODEX_PLUGIN_ROOT" in command for command in install_commands))
         self.assertTrue(all("CLAUDE_PLUGIN_ROOT" in command for command in install_commands))
-        self.assertTrue(all("scripts/chat2skill_hook.py" in command for command in install_commands))
+        self.assertTrue(all("chat2skill_hook.py" in command for command in install_commands))
+        self.assertTrue(all("os.environ.get" in command for command in install_commands))
+        self.assertTrue(all("sh -c" not in command for command in install_commands))
+        self.assertTrue(all(command.startswith("cmd /d /s /c") for command in windows_commands))
+        self.assertTrue(all("chat2skill_hook.cmd" in command for command in windows_commands))
+        self.assertTrue((ROOT / "scripts" / "chat2skill_hook.cmd").exists())
 
     def test_claude_plugin_ships_lifecycle_hooks(self):
         plugin_path = ROOT / ".claude-plugin" / "plugin.json"

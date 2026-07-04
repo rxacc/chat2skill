@@ -1,6 +1,6 @@
 {
   "name": "chat2skill",
-  "version": "0.1.4",
+  "version": "0.1.6",
   "description": "Automatically learn reusable skills and memory from Claude Code conversations. Includes one /chat2skill skill, UserPromptSubmit, Stop learning, and Stop response guard hooks.",
   "author": {
     "name": "Chat2Skill contributors"
