@@ -26,6 +26,7 @@ from pydantic import BaseModel
 
 from . import api_client, memory_client, runner, storage
 from .config import load_config
+from .initializer import ensure_user_home
 
 ADMIN_STATIC_DIR = Path(__file__).with_name("admin_static")
 
@@ -1335,6 +1336,7 @@ def _write_skill_file(user_id: str, skill_name: str, content: str) -> None:
 def run(host: str, port: int, open_browser: bool) -> None:
     import uvicorn
 
+    ensure_user_home(create_db=True)
     if not _port_available(host, port):
         raise RuntimeError(
             f"127.0.0.1:{port} is already in use. Stop the existing Chat2Skill Admin "

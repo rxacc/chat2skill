@@ -9,10 +9,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from chat2skill.hookio import log_event, read_hook_input
+from chat2skill.initializer import ensure_user_home
 from chat2skill.response_guard import evaluate_stop_payload, stop_hook_output
 
 
 def main() -> int:
+    ensure_user_home(create_db=True)
     data = read_hook_input()
     result = evaluate_stop_payload(data)
     if result.blocked:

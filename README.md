@@ -158,6 +158,26 @@ UserPromptSubmit hook ◄── local retrieval   (project skill + detailed skil
 
 ### 1. Configure
 
+Cross-platform initialization:
+
+```bash
+python3 scripts/chat2skill_init.py
+```
+
+On Windows:
+
+```powershell
+python .\scripts\chat2skill_init.py
+```
+
+The command creates the local data directory, config file, SQLite database,
+and skills directory:
+
+- macOS/Linux: `~/.chat2skill/`
+- Windows: `%USERPROFILE%\.chat2skill\`
+
+Manual setup is equivalent:
+
 ```bash
 mkdir -p ~/.chat2skill
 cp config.example.json ~/.chat2skill/config.json
@@ -177,7 +197,7 @@ For OpenAI-compatible models, write `~/.chat2skill/config.json` like this:
   "api_url": "https://api.chat2skill.com",
   "user_id": "alice",
   "memory": {
-    "target_model": "claude",
+    "target_model": "generic",
     "token_budget": 4000,
     "memory_ratio": 0.6,
     "skill_top_k": 6,
@@ -205,7 +225,7 @@ For DeepSeek, write `~/.chat2skill/config.json` like this:
   "api_url": "https://api.chat2skill.com",
   "user_id": "alice",
   "memory": {
-    "target_model": "claude",
+    "target_model": "generic",
     "token_budget": 4000,
     "memory_ratio": 0.6,
     "skill_top_k": 6,
@@ -275,7 +295,7 @@ dev server; Vite proxies `/api` requests to the Python backend.
 | Environment variable | JSON key | Default | Description |
 | --- | --- | --- | --- |
 | `CHAT2SKILL_API_URL` | `api_url` | `https://api.chat2skill.com` | Chat2Skill API endpoint used for stateless learn/extract calls. |
-| `CHAT2SKILL_MEMORY_TARGET_MODEL` | `memory.target_model` | `claude` | Reserved renderer target for API-compatible payloads. |
+| `CHAT2SKILL_MEMORY_TARGET_MODEL` | `memory.target_model` | `generic` | Reserved renderer target for API-compatible payloads. |
 | `CHAT2SKILL_MEMORY_TOKEN_BUDGET` | `memory.token_budget` | `4000` | Total prompt-injection token budget for memory plus skills. |
 | `CHAT2SKILL_MEMORY_MEMORY_RATIO` | `memory.memory_ratio` | `0.6` | Fraction of retrieval budget initially allocated to memory. |
 | `CHAT2SKILL_MEMORY_SKILL_TOP_K` | `memory.skill_top_k` | `6` | Maximum detailed skills injected by local prompt retrieval. |
@@ -316,7 +336,13 @@ codex
 Open `/plugins`, select the `chat2skill` marketplace, and install
 `chat2skill`.
 
-For non-interactive install:
+Codex loads `hooks/hooks.json`. The Chat2Skill hook launcher resolves the
+installed plugin root from Codex/Claude-compatible plugin environment
+variables, falls back to the hook working directory, and initializes the local
+data home on first hook/admin run:
+
+- macOS/Linux: `~/.chat2skill/`
+- Windows: `%USERPROFILE%\.chat2skill\`
 
 ```bash
 codex plugin marketplace add rxacc/chat2skill
@@ -349,7 +375,7 @@ https://github.com/rxacc/chat2skill
 
 The Cursor plugin uses:
 
-- `hooks/cursor-hooks.json` for Cursor-format hooks.
+- `.cursor-plugin/hooks.json` for Cursor-format hooks.
 - `${CURSOR_PLUGIN_ROOT}` for installed plugin paths.
 - `.cursor/rules/chat2skill.mdc` as an always-on project rule.
 - `sessionStart` to provide the current project skill when Cursor
@@ -421,7 +447,7 @@ Chat2Skill needs two capabilities for the full automatic loop:
 | --- | --- | --- |
 | Claude Code | Native plugin marketplace | Full automatic support through `.claude-plugin/marketplace.json`, the `chat2skill` skill, and standard `hooks/hooks.json` with `UserPromptSubmit` + `Stop` learning + Stop response guard. |
 | Codex | Native plugin/local installer | Full automatic support through `.codex-plugin/plugin.json` and `install.sh`, which writes absolute hook paths for the local clone, including the Stop response guard. |
-| Cursor | Native plugin + project rule | Supported through `.cursor-plugin/plugin.json`, `hooks/cursor-hooks.json`, `.cursor/rules/chat2skill.mdc`, and the `chat2skill` skill. Stop learning works from Cursor transcripts, and the response guard runs when Cursor provides final response text. Dynamic per-prompt context injection is limited by Cursor's current `beforeSubmitPrompt` hook behavior. |
+| Cursor | Native plugin + project rule | Supported through `.cursor-plugin/plugin.json`, `.cursor-plugin/hooks.json`, `.cursor/rules/chat2skill.mdc`, and the `chat2skill` skill. Stop learning works from Cursor transcripts, and the response guard runs when Cursor provides final response text. Dynamic per-prompt context injection is limited by Cursor's current `beforeSubmitPrompt` hook behavior. |
 | OpenCode | Server plugin + command | `opencode.json` loads `.opencode/plugins/chat2skill.mjs`, which calls `retrieve_for_prompt.py` and appends relevant snippets to the system prompt. `.opencode/command/chat2skill.md` adds a manual command prompt. |
 | GitHub Copilot | Repository instructions | `.github/copilot-instructions.md` tells Copilot how to run Chat2Skill CLI retrieval/update. Local Copilot CLI hooks can also call Chat2Skill; cloud/ephemeral agents are not equivalent to local persistent hooks. |
 | Kimi Code CLI | Skills/hooks capable | Configure `UserPromptSubmit`/`Stop` equivalents to call the hook scripts, or use the skill/CLI workflow. |

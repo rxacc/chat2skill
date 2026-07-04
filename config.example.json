@@ -1,6 +1,6 @@
 {
   "memory": {
-    "target_model": "claude",
+    "target_model": "generic",
     "token_budget": 4000,
     "memory_ratio": 0.6,
     "skill_top_k": 6,

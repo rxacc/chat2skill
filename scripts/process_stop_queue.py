@@ -15,6 +15,7 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 from chat2skill import runner
 from chat2skill.api_client import ApiError
 from chat2skill.config import DATA_HOME, load_config
+from chat2skill.initializer import ensure_user_home
 from chat2skill.memory_client import MemoryClientError
 from chat2skill.hookio import log_event
 from chat2skill.transcripts import parse_transcript
@@ -26,7 +27,7 @@ PROJECT_SKILL_REBUILD_STATUSES = {"saved", "memory_saved"}
 
 
 def main() -> int:
-    DATA_HOME.mkdir(parents=True, exist_ok=True)
+    ensure_user_home(create_db=True)
     if not acquire_lock():
         log_event("StopWorker.skipped", reason="worker_already_running")
         return 0

@@ -5,7 +5,7 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_user_prompt_submit.py\""
+            "command": "python3 -c \"import os,runpy,sys,pathlib;root=os.environ.get('CODEX_PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT') or os.environ.get('PLUGIN_ROOT') or os.getcwd();sys.argv=['chat2skill_hook.py','user-prompt-submit'];runpy.run_path(str(pathlib.Path(root)/'scripts'/'chat2skill_hook.py'),run_name='__main__')\" || python -c \"import os,runpy,sys,pathlib;root=os.environ.get('CODEX_PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT') or os.environ.get('PLUGIN_ROOT') or os.getcwd();sys.argv=['chat2skill_hook.py','user-prompt-submit'];runpy.run_path(str(pathlib.Path(root)/'scripts'/'chat2skill_hook.py'),run_name='__main__')\" || py -3 -c \"import os,runpy,sys,pathlib;root=os.environ.get('CODEX_PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT') or os.environ.get('PLUGIN_ROOT') or os.getcwd();sys.argv=['chat2skill_hook.py','user-prompt-submit'];runpy.run_path(str(pathlib.Path(root)/'scripts'/'chat2skill_hook.py'),run_name='__main__')\""
           }
         ]
       }
@@ -15,11 +15,11 @@
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_stop.py\""
+            "command": "python3 -c \"import os,runpy,sys,pathlib;root=os.environ.get('CODEX_PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT') or os.environ.get('PLUGIN_ROOT') or os.getcwd();sys.argv=['chat2skill_hook.py','stop'];runpy.run_path(str(pathlib.Path(root)/'scripts'/'chat2skill_hook.py'),run_name='__main__')\" || python -c \"import os,runpy,sys,pathlib;root=os.environ.get('CODEX_PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT') or os.environ.get('PLUGIN_ROOT') or os.getcwd();sys.argv=['chat2skill_hook.py','stop'];runpy.run_path(str(pathlib.Path(root)/'scripts'/'chat2skill_hook.py'),run_name='__main__')\" || py -3 -c \"import os,runpy,sys,pathlib;root=os.environ.get('CODEX_PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT') or os.environ.get('PLUGIN_ROOT') or os.getcwd();sys.argv=['chat2skill_hook.py','stop'];runpy.run_path(str(pathlib.Path(root)/'scripts'/'chat2skill_hook.py'),run_name='__main__')\""
           },
           {
             "type": "command",
-            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/hook_stop_response_guard.py\""
+            "command": "python3 -c \"import os,runpy,sys,pathlib;root=os.environ.get('CODEX_PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT') or os.environ.get('PLUGIN_ROOT') or os.getcwd();sys.argv=['chat2skill_hook.py','stop-response-guard'];runpy.run_path(str(pathlib.Path(root)/'scripts'/'chat2skill_hook.py'),run_name='__main__')\" || python -c \"import os,runpy,sys,pathlib;root=os.environ.get('CODEX_PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT') or os.environ.get('PLUGIN_ROOT') or os.getcwd();sys.argv=['chat2skill_hook.py','stop-response-guard'];runpy.run_path(str(pathlib.Path(root)/'scripts'/'chat2skill_hook.py'),run_name='__main__')\" || py -3 -c \"import os,runpy,sys,pathlib;root=os.environ.get('CODEX_PLUGIN_ROOT') or os.environ.get('CLAUDE_PLUGIN_ROOT') or os.environ.get('PLUGIN_ROOT') or os.getcwd();sys.argv=['chat2skill_hook.py','stop-response-guard'];runpy.run_path(str(pathlib.Path(root)/'scripts'/'chat2skill_hook.py'),run_name='__main__')\""
           }
         ]
       }

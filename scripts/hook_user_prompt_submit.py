@@ -9,6 +9,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from chat2skill.config import load_config
+from chat2skill.initializer import ensure_user_home
 from chat2skill.memory_client import MemoryClientError, materialize_for_prompt
 from chat2skill.hookio import (
     json_hook_output,
@@ -24,6 +25,7 @@ from chat2skill.storage import record_skill_usage, save_project_memory_materiali
 
 
 def main() -> int:
+    ensure_user_home(create_db=True)
     data = read_hook_input()
     prompt = prompt_from_input(data)
     project_dir = project_dir_from_input(data)

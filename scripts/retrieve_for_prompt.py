@@ -15,10 +15,12 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from chat2skill.config import base_user_id, load_config
+from chat2skill.initializer import ensure_user_home
 from chat2skill.memory_client import MemoryClientError, materialize_for_prompt
 
 
 def main() -> int:
+    ensure_user_home(create_db=True)
     parser = argparse.ArgumentParser(description="Retrieve learned Chat2Skill skills.")
     parser.add_argument("task", nargs="+", help="Current user task text.")
     parser.add_argument("--user-id", default=base_user_id())

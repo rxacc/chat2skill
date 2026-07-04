@@ -12,12 +12,14 @@ sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from chat2skill import runner
 from chat2skill.config import base_user_id, load_config
+from chat2skill.initializer import ensure_user_home
 from chat2skill.transcripts import find_latest_session
 
 PROJECT_SKILL_REBUILD_STATUSES = {"saved", "memory_saved"}
 
 
 def main() -> int:
+    ensure_user_home(create_db=True)
     parser = argparse.ArgumentParser(description="Update Chat2Skill from transcripts.")
     parser.add_argument("--input", action="append", help="Transcript JSONL file (repeatable).")
     parser.add_argument("--latest", action="store_true", help="Process the newest session file.")

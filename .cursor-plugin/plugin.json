@@ -26,5 +26,5 @@
     "learning"
   ],
   "skills": "./skills/",
-  "hooks": "./hooks/cursor-hooks.json"
+  "hooks": "./.cursor-plugin/hooks.json"
 }

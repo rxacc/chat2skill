@@ -13,6 +13,7 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).resolve().parent))
 
 from chat2skill.config import DATA_HOME
+from chat2skill.initializer import ensure_user_home
 from chat2skill.hookio import (
     log_event,
     project_dir_from_input,
@@ -25,6 +26,7 @@ QUEUE_PATH = DATA_HOME / "stop-queue.jsonl"
 
 
 def main() -> int:
+    ensure_user_home(create_db=True)
     data = read_hook_input()
     session_file = transcript_path_from_input(data)
     if not session_file:

@@ -37,7 +37,7 @@ def load_config() -> dict:
         config["api_url"] = os.environ["CHAT2SKILL_API_URL"]
 
     memory = dict(config.get("memory") or {})
-    memory.setdefault("target_model", "claude")
+    memory.setdefault("target_model", "generic")
     memory.setdefault("token_budget", 4000)
     memory.setdefault("memory_ratio", 0.6)
     memory.setdefault("skill_top_k", 6)
