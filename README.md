@@ -320,8 +320,10 @@ For local development, load the plugin for one session:
 claude --plugin-dir ~/plugins/chat2skill
 ```
 
-Claude Code uses `.claude-plugin/hooks.json`, and `${CLAUDE_PLUGIN_ROOT}`
-resolves to the installed plugin directory — no path setup needed.
+Claude Code installs hooks from the root `hooks/hooks.json` entrypoint. The
+host-specific copy is also kept at `hooks/claude-hooks.json`, and
+`${CLAUDE_PLUGIN_ROOT}` resolves to the installed plugin directory — no path
+setup needed.
 
 ### 2b. Codex
 
@@ -335,8 +337,9 @@ codex
 Open `/plugins`, select the `chat2skill` marketplace, and install
 `chat2skill`.
 
-Codex uses `.codex-plugin/hooks.json`. The hook entrypoints initialize the local
-data home on first hook/admin run:
+Codex installs hooks from the root `hooks/hooks.json` entrypoint. The
+host-specific copy is also kept at `hooks/codex-hooks.json`. The hook
+entrypoints initialize the local data home on first hook/admin run:
 
 - macOS/Linux: `~/.chat2skill/`
 - Windows: `%USERPROFILE%\.chat2skill\`
@@ -442,8 +445,8 @@ Chat2Skill needs two capabilities for the full automatic loop:
 
 | Agent | Current support | Notes |
 | --- | --- | --- |
-| Claude Code | Native plugin marketplace | Full automatic support through `.claude-plugin/marketplace.json`, `.claude-plugin/hooks.json`, the `chat2skill` skill, `UserPromptSubmit`, Stop learning, and Stop response guard. |
-| Codex | Native plugin/local installer | Full automatic support through `.codex-plugin/plugin.json`, `.codex-plugin/hooks.json`, and local cache refresh through `install.sh`, including the Stop response guard. |
+| Claude Code | Native plugin marketplace | Full automatic support through `.claude-plugin/marketplace.json`, root `hooks/hooks.json`, `hooks/claude-hooks.json`, the `chat2skill` skill, `UserPromptSubmit`, Stop learning, and Stop response guard. |
+| Codex | Native plugin/local installer | Full automatic support through `.codex-plugin/plugin.json`, root `hooks/hooks.json`, `hooks/codex-hooks.json`, and local cache refresh through `install.sh`, including the Stop response guard. |
 | Cursor | Native plugin + project rule | Supported through `.cursor-plugin/plugin.json`, `.cursor-plugin/hooks.json`, `.cursor/rules/chat2skill.mdc`, and the `chat2skill` skill. Stop learning works from Cursor transcripts, and the response guard runs when Cursor provides final response text. Dynamic per-prompt context injection is limited by Cursor's current `beforeSubmitPrompt` hook behavior. |
 | OpenCode | Server plugin + command | `opencode.json` loads `.opencode/plugins/chat2skill.mjs`, which calls `retrieve_for_prompt.py` and appends relevant snippets to the system prompt. `.opencode/command/chat2skill.md` adds a manual command prompt. |
 | GitHub Copilot | Repository instructions | `.github/copilot-instructions.md` tells Copilot how to run Chat2Skill CLI retrieval/update. Local Copilot CLI hooks can also call Chat2Skill; cloud/ephemeral agents are not equivalent to local persistent hooks. |

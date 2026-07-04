@@ -1,5 +1,5 @@
 #!/usr/bin/env bash
-# Generate hooks.json with absolute paths and refresh known local installs.
+# Generate hook manifests and refresh known local installs.
 set -euo pipefail
 
 OVERWRITE_INSTALLED=1
@@ -83,9 +83,9 @@ PY
     return 1
 }
 
-write_hooks_json() {
-    local target_root="$1"
-    cat > "${target_root}/hooks.json" <<EOF
+write_codex_hooks_json() {
+    local output_path="$1"
+    cat > "${output_path}" <<'EOF'
 {
   "hooks": {
     "UserPromptSubmit": [
@@ -93,7 +93,7 @@ write_hooks_json() {
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${target_root}/scripts/hook_user_prompt_submit.py\""
+            "command": "python3 \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" user-prompt-submit || python \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" user-prompt-submit || py -3 \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" user-prompt-submit"
           }
         ]
       }
@@ -103,11 +103,11 @@ write_hooks_json() {
         "hooks": [
           {
             "type": "command",
-            "command": "python3 \"${target_root}/scripts/hook_stop.py\""
+            "command": "python3 \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop || python \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop || py -3 \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop"
           },
           {
             "type": "command",
-            "command": "python3 \"${target_root}/scripts/hook_stop_response_guard.py\""
+            "command": "python3 \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop-response-guard || python \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop-response-guard || py -3 \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop-response-guard"
           }
         ]
       }
@@ -115,6 +115,89 @@ write_hooks_json() {
   }
 }
 EOF
+}
+
+write_claude_hooks_json() {
+    local output_path="$1"
+    cat > "${output_path}" <<'EOF'
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" user-prompt-submit || python \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" user-prompt-submit || py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" user-prompt-submit"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop || python \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop || py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop-response-guard || python \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop-response-guard || py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop-response-guard"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+}
+
+write_root_hooks_json() {
+    local output_path="$1"
+    cat > "${output_path}" <<'EOF'
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'root=\"${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; if [ -z \"$root\" ]; then echo \"Chat2Skill hook requires CODEX_PLUGIN_ROOT or CLAUDE_PLUGIN_ROOT\" >&2; exit 1; fi; python3 \"$root/scripts/chat2skill_hook.py\" user-prompt-submit || python \"$root/scripts/chat2skill_hook.py\" user-prompt-submit || py -3 \"$root/scripts/chat2skill_hook.py\" user-prompt-submit'"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "sh -c 'root=\"${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; if [ -z \"$root\" ]; then echo \"Chat2Skill hook requires CODEX_PLUGIN_ROOT or CLAUDE_PLUGIN_ROOT\" >&2; exit 1; fi; python3 \"$root/scripts/chat2skill_hook.py\" stop || python \"$root/scripts/chat2skill_hook.py\" stop || py -3 \"$root/scripts/chat2skill_hook.py\" stop'"
+          },
+          {
+            "type": "command",
+            "command": "sh -c 'root=\"${CODEX_PLUGIN_ROOT:-${CLAUDE_PLUGIN_ROOT:-}}\"; if [ -z \"$root\" ]; then echo \"Chat2Skill hook requires CODEX_PLUGIN_ROOT or CLAUDE_PLUGIN_ROOT\" >&2; exit 1; fi; python3 \"$root/scripts/chat2skill_hook.py\" stop-response-guard || python \"$root/scripts/chat2skill_hook.py\" stop-response-guard || py -3 \"$root/scripts/chat2skill_hook.py\" stop-response-guard'"
+          }
+        ]
+      }
+    ]
+  }
+}
+EOF
+}
+
+write_hooks_json() {
+    local target_root="$1"
+
+    mkdir -p \
+        "${target_root}/.codex-plugin" \
+        "${target_root}/.claude-plugin" \
+        "${target_root}/hooks"
+    write_codex_hooks_json "${target_root}/.codex-plugin/hooks.json"
+    write_codex_hooks_json "${target_root}/hooks/codex-hooks.json"
+    write_claude_hooks_json "${target_root}/.claude-plugin/hooks.json"
+    write_claude_hooks_json "${target_root}/hooks/claude-hooks.json"
+    write_root_hooks_json "${target_root}/hooks/hooks.json"
+    rm -f "${target_root}/hooks.json"
 }
 
 install_optional_node_deps() {

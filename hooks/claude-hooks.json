@@ -1,0 +1,28 @@
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" user-prompt-submit || python \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" user-prompt-submit || py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" user-prompt-submit"
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop || python \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop || py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop"
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop-response-guard || python \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop-response-guard || py -3 \"${CLAUDE_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop-response-guard"
+          }
+        ]
+      }
+    ]
+  }
+}

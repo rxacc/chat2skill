@@ -36,9 +36,34 @@ class PluginManifestTests(unittest.TestCase):
             ".claude-plugin/hooks.json",
             ".codex-plugin/hooks.json",
             ".cursor-plugin/hooks.json",
+            "hooks/hooks.json",
+            "hooks/codex-hooks.json",
+            "hooks/claude-hooks.json",
         ):
             with self.subTest(path=path):
                 self.assertTrue((ROOT / path).exists())
+
+    def test_root_hooks_directory_ships_agent_specific_hooks(self):
+        codex_hooks = json.loads((ROOT / ".codex-plugin" / "hooks.json").read_text(encoding="utf-8"))
+        claude_hooks = json.loads((ROOT / ".claude-plugin" / "hooks.json").read_text(encoding="utf-8"))
+        root_codex_hooks = json.loads((ROOT / "hooks" / "codex-hooks.json").read_text(encoding="utf-8"))
+        root_claude_hooks = json.loads((ROOT / "hooks" / "claude-hooks.json").read_text(encoding="utf-8"))
+        install_hooks = json.loads((ROOT / "hooks" / "hooks.json").read_text(encoding="utf-8"))
+
+        self.assertEqual(root_codex_hooks, codex_hooks)
+        self.assertEqual(root_claude_hooks, claude_hooks)
+        self.assertIn("UserPromptSubmit", install_hooks["hooks"])
+        self.assertIn("Stop", install_hooks["hooks"])
+
+        install_commands = [
+            hook["command"]
+            for event in install_hooks["hooks"].values()
+            for group in event
+            for hook in group["hooks"]
+        ]
+        self.assertTrue(all("CODEX_PLUGIN_ROOT" in command for command in install_commands))
+        self.assertTrue(all("CLAUDE_PLUGIN_ROOT" in command for command in install_commands))
+        self.assertTrue(all("scripts/chat2skill_hook.py" in command for command in install_commands))
 
     def test_claude_plugin_ships_lifecycle_hooks(self):
         plugin_path = ROOT / ".claude-plugin" / "plugin.json"
