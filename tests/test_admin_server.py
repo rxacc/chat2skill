@@ -262,7 +262,7 @@ class AdminServerTests(unittest.TestCase):
                     "cases": [
                         {
                             "case_id": "cloud-case-1",
-                            "project_id": "u1",
+                            "project_id": "wrong-project",
                             "dimension": "retrieval_coverage",
                             "name": "retrieval",
                             "status": "passed",
@@ -286,6 +286,7 @@ class AdminServerTests(unittest.TestCase):
 
         self.assertEqual(response.status_code, 200)
         self.assertEqual(response.json()["run"]["run_id"], "cloud-run-1")
+        self.assertEqual(response.json()["cases"][0]["user_id"], "u1")
         runs = self.client.get("/api/projects/u1/eval-runs", headers=self.headers)
         self.assertEqual(runs.json()["eval_runs"][0]["run_id"], "cloud-run-1")
 

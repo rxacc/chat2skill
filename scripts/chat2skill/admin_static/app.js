@@ -1,6 +1,29 @@
 const e = React.createElement;
 
 const token = new URLSearchParams(window.location.search).get("token") || "";
+const SELECTED_PROJECT_KEY = "chat2skill.admin.selectedProject";
+const SELECTED_TAB_KEY = "chat2skill.admin.selectedTab";
+const PROJECT_SORT_KEY = "chat2skill.admin.projectSort";
+
+function readLocalSetting(key, fallback) {
+  try {
+    return window.localStorage.getItem(key) || fallback;
+  } catch {
+    return fallback;
+  }
+}
+
+function writeLocalSetting(key, value) {
+  try {
+    if (value) {
+      window.localStorage.setItem(key, value);
+    } else {
+      window.localStorage.removeItem(key);
+    }
+  } catch {
+    // Browser storage can be unavailable in private or restricted contexts.
+  }
+}
 
 function api(path, options = {}) {
   const headers = {
@@ -52,12 +75,12 @@ function sortProjects(projects, sortMode) {
 
 function App() {
   const [projects, setProjects] = React.useState([]);
-  const [selected, setSelected] = React.useState("");
-  const [tab, setTab] = React.useState("skills");
+  const [selected, setSelected] = React.useState(() => readLocalSetting(SELECTED_PROJECT_KEY, ""));
+  const [tab, setTab] = React.useState(() => readLocalSetting(SELECTED_TAB_KEY, "skills"));
   const [error, setError] = React.useState("");
   const [loading, setLoading] = React.useState(false);
   const [projectQuery, setProjectQuery] = React.useState("");
-  const [projectSort, setProjectSort] = React.useState("updated_desc");
+  const [projectSort, setProjectSort] = React.useState(() => readLocalSetting(PROJECT_SORT_KEY, "updated_desc"));
   const [refreshKey, setRefreshKey] = React.useState(0);
 
   const loadProjects = React.useCallback(() => {
@@ -77,6 +100,18 @@ function App() {
   React.useEffect(() => {
     loadProjects();
   }, [loadProjects]);
+
+  React.useEffect(() => {
+    writeLocalSetting(SELECTED_PROJECT_KEY, selected);
+  }, [selected]);
+
+  React.useEffect(() => {
+    writeLocalSetting(SELECTED_TAB_KEY, tab);
+  }, [tab]);
+
+  React.useEffect(() => {
+    writeLocalSetting(PROJECT_SORT_KEY, projectSort);
+  }, [projectSort]);
 
   React.useEffect(() => {
     const refresh = () => {

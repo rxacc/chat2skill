@@ -387,12 +387,24 @@ def _run_eval_cases(user_id: str, suite: str, cases: list[dict]):
         detail = _admin_error_detail(exc)
         status_code = 429 if _is_rate_limit_error(exc) else 502
         raise HTTPException(status_code=status_code, detail=detail) from exc
-    result = response.get("result") or response
+    result = _normalize_eval_result_user_id(response.get("result") or response, user_id)
     run_id = storage.save_eval_run(result)
     saved = storage.load_eval_run(run_id, user_id=user_id)
     if not saved:
         raise HTTPException(status_code=500, detail="eval run was not saved")
     return saved
+
+
+def _normalize_eval_result_user_id(result: dict, user_id: str) -> dict:
+    normalized = dict(result)
+    normalized_cases = []
+    for case in result.get("cases") or []:
+        normalized_case = dict(case)
+        normalized_case["project_id"] = user_id
+        normalized_case["user_id"] = user_id
+        normalized_cases.append(normalized_case)
+    normalized["cases"] = normalized_cases
+    return normalized
 
 
 def _build_project_eval_cases(user_id: str) -> list[dict]:
