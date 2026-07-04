@@ -85,52 +85,36 @@ PY
 
 write_hooks_json() {
     local target_root="$1"
-    local output_path="${2:-${target_root}/hooks.json}"
-    local user_prompt_command
-    local stop_command
-    local guard_command
-
-    mkdir -p "$(dirname "${output_path}")"
-    user_prompt_command="python3 \"${target_root}/scripts/chat2skill_hook.py\" user-prompt-submit || python \"${target_root}/scripts/chat2skill_hook.py\" user-prompt-submit || py -3 \"${target_root}/scripts/chat2skill_hook.py\" user-prompt-submit"
-    stop_command="python3 \"${target_root}/scripts/chat2skill_hook.py\" stop || python \"${target_root}/scripts/chat2skill_hook.py\" stop || py -3 \"${target_root}/scripts/chat2skill_hook.py\" stop"
-    guard_command="python3 \"${target_root}/scripts/chat2skill_hook.py\" stop-response-guard || python \"${target_root}/scripts/chat2skill_hook.py\" stop-response-guard || py -3 \"${target_root}/scripts/chat2skill_hook.py\" stop-response-guard"
-
-    python3 - "${output_path}" "${user_prompt_command}" "${stop_command}" "${guard_command}" <<'PY'
-import json
-import sys
-from pathlib import Path
-
-output_path, user_prompt_command, stop_command, guard_command = sys.argv[1:5]
-payload = {
-    "hooks": {
-        "UserPromptSubmit": [
-            {
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": user_prompt_command,
-                    }
-                ]
-            }
-        ],
-        "Stop": [
-            {
-                "hooks": [
-                    {
-                        "type": "command",
-                        "command": stop_command,
-                    },
-                    {
-                        "type": "command",
-                        "command": guard_command,
-                    },
-                ]
-            }
-        ],
-    }
+    cat > "${target_root}/hooks.json" <<EOF
+{
+  "hooks": {
+    "UserPromptSubmit": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${target_root}/scripts/hook_user_prompt_submit.py\""
+          }
+        ]
+      }
+    ],
+    "Stop": [
+      {
+        "hooks": [
+          {
+            "type": "command",
+            "command": "python3 \"${target_root}/scripts/hook_stop.py\""
+          },
+          {
+            "type": "command",
+            "command": "python3 \"${target_root}/scripts/hook_stop_response_guard.py\""
+          }
+        ]
+      }
+    ]
+  }
 }
-Path(output_path).write_text(json.dumps(payload, ensure_ascii=False, indent=2) + "\n", encoding="utf-8")
-PY
+EOF
 }
 
 install_optional_node_deps() {
@@ -173,8 +157,7 @@ sync_install_target() {
         --exclude 'config.json' \
         --exclude 'node_modules/' \
         "${PLUGIN_ROOT}/" "${target}/"
-    write_hooks_json "${target}" "${target}/hooks.json"
-    write_hooks_json "${target}" "${target}/hooks/hooks.json"
+    write_hooks_json "${target}"
     install_optional_node_deps "${target}"
     echo "Overwrote install target: ${target}"
 }
@@ -213,7 +196,7 @@ sync_extra_install_targets() {
     done
 }
 
-write_hooks_json "${PLUGIN_ROOT}" "${PLUGIN_ROOT}/hooks.json"
+write_hooks_json "${PLUGIN_ROOT}"
 echo "Wrote ${PLUGIN_ROOT}/hooks.json"
 install_optional_node_deps "${PLUGIN_ROOT}"
 
