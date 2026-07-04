@@ -311,9 +311,46 @@ Chat2Skill includes a local-only management page for reviewing and managing
 stored project memory and skills. This section is for source checkout or manual
 CLI users; ordinary plugin installation does not require running this server.
 
+From a source checkout on macOS, Linux, or WSL:
+
 ```bash
 python3 scripts/chat2skill_admin.py
-# opens http://127.0.0.1:8765 with a one-time local admin token
+```
+
+From a source checkout on Windows PowerShell:
+
+```powershell
+python .\scripts\chat2skill_admin.py
+```
+
+From an installed Codex plugin, every system must first enter the installed
+plugin directory. The path includes the marketplace name, plugin name, and
+version.
+
+macOS, Linux, or WSL installed plugin:
+
+```bash
+cd ~/.codex/plugins/cache/chat2skill/chat2skill/<version>
+python3 scripts/chat2skill_admin.py
+```
+
+Windows PowerShell installed plugin:
+
+```powershell
+cd "$env:USERPROFILE\.codex\plugins\cache\chat2skill\chat2skill\<version>"
+python .\scripts\chat2skill_admin.py
+```
+
+The command initializes `.chat2skill` if needed, prints a one-time URL such as
+`http://127.0.0.1:8765/?token=...`, and opens it in your browser by default.
+If the browser does not open, copy the printed URL exactly; the token is
+required.
+
+Useful options:
+
+```bash
+python3 scripts/chat2skill_admin.py --port 8766
+python3 scripts/chat2skill_admin.py --no-open
 ```
 
 The admin server binds to `127.0.0.1` by default and reads/writes only the
