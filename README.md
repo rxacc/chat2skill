@@ -156,27 +156,73 @@ UserPromptSubmit hook ◄── local retrieval   (project skill + detailed skil
 
 ## Install
 
-### 1. Configure
+### 1. Install the plugin
 
-Cross-platform initialization:
+Normal users should install Chat2Skill from their agent's plugin marketplace.
+Do not clone this repository just to run `scripts/chat2skill_init.py`.
+
+Codex:
+
+```bash
+codex plugin marketplace add rxacc/chat2skill
+codex
+```
+
+Then open `/plugins`, select the `chat2skill` marketplace, and install
+`chat2skill`.
+
+Claude Code:
+
+```bash
+claude plugin marketplace add https://github.com/rxacc/chat2skill
+claude plugin install chat2skill@chat2skill
+```
+
+Cursor:
+
+Open **Settings -> Plugins**, paste this repository URL, and install the
+Chat2Skill plugin.
+
+Chat2Skill hooks run Python code, so the machine running the agent must have
+Python 3 available as `python3`, `python`, or `py -3`. If Python is missing,
+the plugin cannot initialize local storage or run retrieval/learning.
+
+After the plugin is installed and trusted, the first hook run initializes the
+local data directory:
+
+- macOS/Linux: `~/.chat2skill/`
+- Windows: `%USERPROFILE%\.chat2skill\`
+
+The initialization creates the config file, SQLite database, and skills
+directory:
+
+- `config.json`
+- `c2s.db`
+- `skills/`
+
+### 2. Configure local settings
+
+Edit the config file created under the local data directory. Chat2Skill calls
+the stateless learn API for extraction and stores returned project memory,
+conversations, skills, and profiles in `~/.chat2skill/c2s.db`. Prompt retrieval
+runs locally from that database and always injects retrieved project memory
+plus relevant skills. Rendered skill files stay under
+`~/.chat2skill/skills/`.
+
+If you are developing from a source checkout or using the CLI scripts manually,
+you can initialize the same local data directory yourself:
 
 ```bash
 python3 scripts/chat2skill_init.py
 ```
 
-On Windows:
+From a source checkout on Windows:
 
 ```powershell
 python .\scripts\chat2skill_init.py
 ```
 
-The command creates the local data directory, config file, SQLite database,
-and skills directory:
-
-- macOS/Linux: `~/.chat2skill/`
-- Windows: `%USERPROFILE%\.chat2skill\`
-
-Manual setup is equivalent:
+From a source checkout, manual setup is equivalent:
 
 ```bash
 mkdir -p ~/.chat2skill
@@ -184,11 +230,8 @@ cp config.example.json ~/.chat2skill/config.json
 # edit ~/.chat2skill/config.json: set api_url and llm.api_key
 ```
 
-Use one config file. Chat2Skill calls the stateless learn API for extraction
-and stores returned project memory, conversations, skills, and profiles in
-`~/.chat2skill/c2s.db`. Prompt retrieval runs locally from that database and
-always injects retrieved project memory plus relevant skills. Rendered skill
-files stay under `~/.chat2skill/skills/`.
+Without a source checkout, create the same config file yourself using one of
+the JSON examples below.
 
 For OpenAI-compatible models, write `~/.chat2skill/config.json` like this:
 
@@ -265,7 +308,8 @@ variables if you prefer shell config or need to override the JSON file.
 ## Local Admin UI
 
 Chat2Skill includes a local-only management page for reviewing and managing
-stored project memory and skills.
+stored project memory and skills. This section is for source checkout or manual
+CLI users; ordinary plugin installation does not require running this server.
 
 ```bash
 python3 scripts/chat2skill_admin.py
@@ -305,14 +349,7 @@ dev server; Vite proxies `/api` requests to the Python backend.
 | `CHAT2SKILL_USER_ID` | `user_id` | system username | Base namespace for local skills and profile data. Project-specific skills use `<user>__project__<slug>`. |
 | `CHAT2SKILL_RESPONSE_GUARD` | unset | `adaptive` | Stop response guard mode. Use `adaptive`, `block-once`, `strict`, `warn-only`, or `off`. Structured `response_guard.mode: evidence_based_terms` allows explicit evidence-gap disclosure while still blocking unsupported hedging. |
 
-### 2a. Claude Code
-
-Install from the Chat2Skill marketplace:
-
-```bash
-claude plugin marketplace add https://github.com/rxacc/chat2skill
-claude plugin install chat2skill@chat2skill
-```
+### Agent notes: Claude Code
 
 For local development, load the plugin for one session:
 
@@ -325,30 +362,14 @@ host-specific copy is also kept at `hooks/claude-hooks.json`, and
 `${CLAUDE_PLUGIN_ROOT}` resolves to the installed plugin directory — no path
 setup needed.
 
-### 2b. Codex
-
-Install from the Chat2Skill marketplace:
-
-```bash
-codex plugin marketplace add rxacc/chat2skill
-codex
-```
-
-Open `/plugins`, select the `chat2skill` marketplace, and install
-`chat2skill`.
+### Agent notes: Codex
 
 Codex installs hooks from the root `hooks/hooks.json` entrypoint. The
 host-specific copy is also kept at `hooks/codex-hooks.json`. The hook
-entrypoints initialize the local data home on first hook/admin run:
+entrypoints initialize the local data home on first hook run:
 
 - macOS/Linux: `~/.chat2skill/`
 - Windows: `%USERPROFILE%\.chat2skill\`
-
-```bash
-codex plugin marketplace add rxacc/chat2skill
-codex plugin add chat2skill@chat2skill
-codex
-```
 
 For local development or manual hook generation:
 
@@ -360,7 +381,7 @@ cd ~/plugins/chat2skill && ./install.sh
 `install.sh` refreshes known local plugin cache directories with agent-specific
 hook files and creates the config file if missing.
 
-### 2c. Cursor
+### Agent notes: Cursor
 
 Cursor supports native plugins with `.cursor-plugin/plugin.json`.
 
@@ -386,13 +407,13 @@ The Cursor plugin uses:
 Important Cursor limitation: Cursor plugins do support hooks and skills,
 but Cursor's `beforeSubmitPrompt` hook currently cannot inject dynamic
 per-prompt context into the model. For prompt-specific retrieval in
-Cursor, use the `chat2skill` skill or run:
+Cursor, use the `chat2skill` skill. From a source checkout, you can also run:
 
 ```bash
 python3 scripts/retrieve_for_prompt.py "your current task"
 ```
 
-### 2d. OpenCode
+### Agent notes: OpenCode
 
 Run OpenCode from a checkout of this repository. `opencode.json` loads
 `.opencode/plugins/chat2skill.mjs`, which calls the same retrieval CLI and
@@ -402,14 +423,14 @@ adds relevant snippets to the system prompt.
 { "plugin": ["./.opencode/plugins/chat2skill.mjs"] }
 ```
 
-### 2e. Other agents
+### Agent notes: Other agents
 
-If your agent supports hooks, point them at:
+For manual integrations from a source checkout, point hook-capable agents at:
 - prompt-submit: `python3 <plugin-root>/scripts/hook_user_prompt_submit.py`
 - session-end learning: `python3 <plugin-root>/scripts/hook_stop.py`
 - session-end response guard: `python3 <plugin-root>/scripts/hook_stop_response_guard.py`
 
-No hooks? Use the CLIs:
+No hooks? From a source checkout, use the CLIs:
 
 ```bash
 # after a session: learn from the newest transcript
