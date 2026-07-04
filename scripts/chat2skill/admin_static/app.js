@@ -690,7 +690,7 @@ function EvalsTab({ userId, setError, refreshKey }) {
             e("span", { className: `badge ${run.status === "completed" ? "ok" : "warn"}` }, run.status || "unknown")
           ),
           e("div", { className: "meta" }, `${run.project_passed ?? run.passed_cases}/${run.project_cases ?? run.total_cases} passed · score ${Number(run.score_mean || 0).toFixed(2)}`),
-          e("div", { className: "meta" }, `saved ${formatInteger(tokensSavedTotal(run))} tokens`),
+          runTokenLine(run) ? e("div", { className: "meta" }, runTokenLine(run)) : null,
           e("div", { className: "meta" }, formatTime(run.finished_at || run.imported_at))
         ))
         )
@@ -708,6 +708,7 @@ function EvalRunDetail({ detail }) {
     setSelectedCaseId(cases[0]?.case_id || "");
   }, [run.run_id]);
   const selectedCase = cases.find((item) => item.case_id === selectedCaseId) || cases[0];
+  const metrics = evalRunMetrics(run, cases);
   return e("div", { className: "panel eval-report" },
     e("div", { className: "topbar" },
       e("div", null,
@@ -717,12 +718,7 @@ function EvalRunDetail({ detail }) {
       e("span", { className: `badge ${run.status === "completed" ? "ok" : "warn"}` }, run.status || "unknown")
     ),
     e("div", { className: "metric-grid eval-metrics" },
-      e(Metric, { label: "Pass rate", value: formatPercent(run.pass_rate) }),
-      e(Metric, { label: "Passed", value: `${run.passed_cases || 0}/${run.total_cases || 0}` }),
-      e(Metric, { label: "Score mean", value: Number(run.score_mean || 0).toFixed(2) }),
-      e(Metric, { label: "Score stddev", value: Number(run.score_stddev || 0).toFixed(3) }),
-      e(Metric, { label: "Overall tokens saved", value: formatInteger(tokensSavedTotal(run)) }),
-      e(Metric, { label: "Quality delta", value: Number(run.metrics?.quality_delta_mean || 0).toFixed(2) })
+      metrics.map((metric) => e(Metric, { key: metric.label, label: metric.label, value: metric.value }))
     ),
     e("div", { className: "section-heading" },
       e("h3", null, "Cases"),
@@ -753,6 +749,7 @@ function EvalRunDetail({ detail }) {
 }
 
 function EvalCaseDetail({ item }) {
+  const metrics = evalCaseMetrics(item);
   return e("div", { className: "eval-case-inspector" },
     e("div", { className: "topbar" },
       e("div", null,
@@ -762,9 +759,7 @@ function EvalCaseDetail({ item }) {
       e("span", { className: `badge ${item.status === "passed" ? "ok" : "warn"}` }, item.status)
     ),
     e("div", { className: "metric-grid" },
-      Object.entries(item.metrics || {}).slice(0, 12).map(([key, value]) =>
-        e(Metric, { key, label: key, value: String(value) })
-      )
+      metrics.map((metric) => e(Metric, { key: metric.label, label: metric.label, value: metric.value }))
     ),
     (item.missing_expected_items || []).length
       ? e("div", { className: "prompt-section" },
@@ -794,6 +789,82 @@ function Metric({ label, value }) {
 
 function tokensSavedTotal(run) {
   return Number(run?.metrics?.tokens_saved_total || 0);
+}
+
+function runTokenLine(run) {
+  const total = tokensSavedTotal(run);
+  const suite = String(run?.suite || "");
+  if (!total && !suite.startsWith("prompt:")) return "";
+  return `saved ${formatInteger(total)} tokens`;
+}
+
+function evalRunMetrics(run, cases) {
+  const suite = String(run?.suite || "");
+  const metrics = [
+    { label: "Pass rate", value: formatPercent(run.pass_rate) },
+    { label: "Passed", value: `${run.passed_cases || 0}/${run.total_cases || 0}` },
+    { label: "Score mean", value: Number(run.score_mean || 0).toFixed(2) },
+  ];
+  const qualityDelta = run.metrics?.quality_delta_mean;
+  if (qualityDelta !== undefined) {
+    metrics.push({ label: "Quality delta", value: Number(qualityDelta || 0).toFixed(2) });
+  }
+  if (suite === "project-skill") {
+    const coverageCase = cases.find((item) => item.dimension === "context_relevance_quality");
+    const efficiencyCase = cases.find((item) => item.dimension === "efficiency_lift");
+    const tokenCount = coverageCase?.metrics?.context_tokens ?? efficiencyCase?.metrics?.with_chat2skill_total_tokens;
+    if (tokenCount !== undefined) {
+      metrics.push({ label: "Project skill tokens", value: formatInteger(tokenCount) });
+    }
+    const sourceTokens = efficiencyCase?.metrics?.baseline_total_tokens;
+    if (sourceTokens !== undefined) {
+      metrics.push({ label: "Source tokens", value: formatInteger(sourceTokens) });
+    }
+    const tokensSaved = efficiencyCase?.metrics?.tokens_saved;
+    if (tokensSaved !== undefined) {
+      metrics.push({ label: "Tokens saved", value: formatInteger(tokensSaved) });
+    }
+    const passed = coverageCase?.metrics?.passed_assertions;
+    const total = coverageCase?.metrics?.assertion_count;
+    if (passed !== undefined) {
+      metrics.push({ label: "Covered checks", value: total ? `${formatInteger(passed)}/${formatInteger(total)}` : formatInteger(passed) });
+    }
+    return metrics;
+  }
+  metrics.push({ label: "Score stddev", value: Number(run.score_stddev || 0).toFixed(3) });
+  if (tokensSavedTotal(run) || suite.startsWith("prompt:")) {
+    metrics.push({ label: "Overall tokens saved", value: formatInteger(tokensSavedTotal(run)) });
+  }
+  return metrics;
+}
+
+function evalCaseMetrics(item) {
+  const metrics = item.metrics || {};
+  if (String(item.case_id || "").includes("__project_skill__quality")) {
+    return [
+      { label: "Project skill score", value: String(metrics.with_chat2skill_score ?? "") },
+      { label: "Quality delta", value: String(metrics.quality_delta ?? "") },
+      { label: "Covered checks", value: String(metrics.with_chat2skill_passed_assertions ?? "") },
+      { label: "Project skill tokens", value: String(metrics.with_chat2skill_text_tokens ?? "") },
+    ].filter((metric) => metric.value !== "");
+  }
+  if (String(item.case_id || "").includes("__project_skill__coverage")) {
+    return [
+      { label: "Covered checks", value: `${formatInteger(metrics.passed_assertions)}/${formatInteger(metrics.assertion_count)}` },
+      { label: "Project skill tokens", value: formatInteger(metrics.context_tokens) },
+      { label: "Max tokens", value: formatInteger(metrics.max_context_tokens) },
+      { label: "Relevance density", value: Number(metrics.relevance_density || 0).toFixed(3) },
+    ];
+  }
+  if (String(item.case_id || "").includes("__project_skill__compression")) {
+    return [
+      { label: "Source tokens", value: formatInteger(metrics.baseline_total_tokens) },
+      { label: "Project skill tokens", value: formatInteger(metrics.with_chat2skill_total_tokens) },
+      { label: "Tokens saved", value: formatInteger(metrics.tokens_saved) },
+      { label: "Tokens saved percent", value: formatPercent(metrics.tokens_saved_percent) },
+    ];
+  }
+  return Object.entries(metrics).slice(0, 12).map(([key, value]) => ({ label: key, value: String(value) }));
 }
 
 function formatInteger(value) {

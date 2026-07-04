@@ -515,23 +515,6 @@ def _build_project_eval_cases(user_id: str) -> list[dict]:
                 },
             }
         )
-    cases.append(
-        {
-            "case_id": f"{user_id}__stability_regression",
-            "dimension": "stability_regression",
-            "name": "Project eval stability baseline",
-            "project_id": user_id,
-            "repeats": [
-                {"score": 1.0, "pass_rate": 1.0, "tokens_saved": 0, "latency_ms": 0},
-                {"score": 1.0, "pass_rate": 1.0, "tokens_saved": 0, "latency_ms": 0},
-            ],
-            "expected": {
-                "min_score_mean": 1.0,
-                "max_score_stddev": 0.0,
-                "min_pass_rate_mean": 1.0,
-            },
-        }
-    )
     return cases
 
 
@@ -539,9 +522,10 @@ def _build_memory_eval_cases(user_id: str, memory: dict) -> list[dict]:
     memories = [memory]
     skills = [skill.to_dict() for skill in storage.load_skills(user_id, include_pending=False)]
     query = f"{memory.get('section') or 'project'} {_clip(memory.get('content', ''), 180)}"
+    content = str(memory.get("content") or "")
     expected = {
         "memory_ids": [str(memory.get("id"))],
-        "must_include": _expected_terms(memory.get("content", ""), limit=3),
+        "must_include": _expected_terms(content, limit=3),
     }
     return [
         {
@@ -563,6 +547,34 @@ def _build_memory_eval_cases(user_id: str, memory: dict) -> list[dict]:
             "existing_memory": _memory_state(memories),
             "existing_skills": skills,
             "expected": expected,
+        },
+        {
+            "case_id": f"{user_id}__memory__{_case_id_part(memory.get('id'))}__context_relevance",
+            "dimension": "context_relevance_quality",
+            "name": f"Memory context relevance {memory.get('id')}",
+            "project_id": user_id,
+            "query": query,
+            "with_chat2skill": {"output": content},
+            "expected": {
+                "must_include": expected["must_include"],
+            }
+            | {
+                "max_context_tokens": 800,
+                "min_relevance_density": 0.001,
+            },
+        },
+        {
+            "case_id": f"{user_id}__memory__{_case_id_part(memory.get('id'))}__quality",
+            "dimension": "answer_quality_lift",
+            "name": f"Memory content quality {memory.get('id')}",
+            "project_id": user_id,
+            "query": query,
+            "baseline": {"output": "没有这条项目记忆。"},
+            "with_chat2skill": {"output": content},
+            "expected": {
+                "must_include": _expected_terms(content, limit=3),
+                "min_quality_delta": 0.2,
+            },
         },
     ]
 
@@ -715,37 +727,80 @@ def _materialization_skills(user_id: str, materialization: dict) -> list[dict]:
 
 def _build_project_skill_eval_cases(user_id: str, project_skill: dict) -> list[dict]:
     content = str(project_skill.get("content") or "")
-    terms = _expected_terms(content, limit=5)
-    return [
+    terms = _project_skill_expected_terms(content, limit=6)
+    cases = [
         {
-            "case_id": f"{user_id}__project_skill__quality",
-            "dimension": "answer_quality_lift",
-            "name": "Project skill content quality",
+            "case_id": f"{user_id}__project_skill__coverage",
+            "dimension": "context_relevance_quality",
+            "name": "Project skill coverage and density",
             "project_id": user_id,
             "query": "Apply current project skill",
-            "baseline": {"output": ""},
             "with_chat2skill": {"output": content},
             "expected": {
                 "must_include": terms,
-                "min_quality_delta": 0.2,
-            },
-        },
-        {
-            "case_id": f"{user_id}__project_skill__stability",
-            "dimension": "stability_regression",
-            "name": "Project skill eval stability",
-            "project_id": user_id,
-            "repeats": [
-                {"score": 1.0, "pass_rate": 1.0, "tokens_saved": 0, "latency_ms": 0},
-                {"score": 1.0, "pass_rate": 1.0, "tokens_saved": 0, "latency_ms": 0},
-            ],
-            "expected": {
-                "min_score_mean": 1.0,
-                "max_score_stddev": 0.0,
-                "min_pass_rate_mean": 1.0,
+                "max_context_tokens": 3000,
             },
         },
     ]
+    source_text, source_count = _project_skill_source_text(user_id, project_skill)
+    source_tokens = _text_tokens(source_text)
+    project_tokens = _text_tokens(content)
+    if source_tokens:
+        cases.append(
+            {
+                "case_id": f"{user_id}__project_skill__compression",
+                "dimension": "efficiency_lift",
+                "name": "Project skill compression efficiency",
+                "project_id": user_id,
+                "baseline": {
+                    "total_tokens": source_tokens,
+                    "source_skill_count": source_count,
+                },
+                "with_chat2skill": {
+                    "total_tokens": project_tokens,
+                    "injected_context_tokens": project_tokens,
+                },
+                "expected": {
+                    "min_tokens_saved": 0,
+                },
+            }
+        )
+    return cases
+
+
+def _project_skill_expected_terms(content: str, limit: int) -> list[str]:
+    terms: list[str] = []
+    for line in content.splitlines():
+        heading = line.lstrip("#").strip()
+        if line.startswith("#") and heading and heading not in terms:
+            terms.append(heading)
+        if len(terms) >= limit:
+            return terms
+    for term in _expected_terms(content, limit=limit):
+        if term not in terms:
+            terms.append(term)
+        if len(terms) >= limit:
+            break
+    return terms
+
+
+def _project_skill_source_text(user_id: str, project_skill: dict) -> tuple[str, int]:
+    version = int(project_skill.get("version") or 0)
+    sources = storage.load_project_skill_sources(user_id, version) if version else []
+    source_names = [str(item.get("skill_name") or "") for item in sources if item.get("skill_name")]
+    if not source_names:
+        source_names = [skill.name for skill in storage.load_skills(user_id, include_pending=False)]
+    chunks = []
+    for name in source_names:
+        skill = storage.get_skill(name, user_id=user_id)
+        if not skill:
+            continue
+        chunks.append("\n".join([skill.name, skill.description or "", skill.content or ""]))
+    return "\n\n".join(chunks), len(chunks)
+
+
+def _text_tokens(text: str) -> int:
+    return max(0, len(str(text or "")) // 4)
 
 
 def _memory_state(memories: list[dict]) -> dict:

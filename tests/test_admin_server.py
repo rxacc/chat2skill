@@ -345,6 +345,9 @@ class AdminServerTests(unittest.TestCase):
         self.assertEqual(suites, [suite for _, suite in requests])
         dimensions = {suite: values for suite, values in seen}
         self.assertIn("recall_synthesis_quality", dimensions["memory:m1"])
+        self.assertIn("retrieval_coverage", dimensions["memory:m1"])
+        self.assertIn("context_relevance_quality", dimensions["memory:m1"])
+        self.assertIn("answer_quality_lift", dimensions["memory:m1"])
         self.assertIn("answer_quality_lift", dimensions["prompt:mat-1"])
         self.assertEqual(
             set(dimensions["prompt:mat-1"]),
@@ -358,10 +361,14 @@ class AdminServerTests(unittest.TestCase):
                 "stability_regression",
             },
         )
-        self.assertIn("answer_quality_lift", dimensions["project-skill"])
+        self.assertIn("context_relevance_quality", dimensions["project-skill"])
+        self.assertIn("efficiency_lift", dimensions["project-skill"])
+        self.assertNotIn("stability_regression", dimensions["project-skill"])
 
     def test_prompt_eval_uses_saved_prompt_text_without_exact_memory_id_match(self):
         materialization = admin_server._materialization("u1", "mat-1")
+        self.assertIsNotNone(materialization)
+        assert materialization is not None
         cases = admin_server._build_prompt_eval_cases("u1", materialization)
         content_case = next(item for item in cases if item["case_id"].endswith("__content"))
         self.assertEqual(content_case["dimension"], "answer_quality_lift")
