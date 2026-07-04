@@ -50,6 +50,7 @@ MEMORY_CONTENT_CHAR_LIMIT = 1200
 CORE_MEMORY_CHAR_LIMIT = 5000
 DEFAULT_WORKED_EXAMPLE_TOP_K = 2
 DEFAULT_WORKED_EXAMPLE_MIN_SCORE = 0.82
+DEFAULT_WORKED_EXAMPLE_BACKFILL_LIMIT = 50
 WORKED_EXAMPLE_RAW_CHAR_LIMIT = 800
 WORKED_EXAMPLE_MEMORY_CHAR_LIMIT = 600
 
@@ -73,6 +74,14 @@ def materialize_for_prompt(
     options = _memory_options(config)
     embedding_client = _build_embedding_client(config)
     embedding_model = _embedding_model(config)
+    _embed_context_memories(context, embedding_client, embedding_model)
+    _backfill_activity_inputs_for_examples(
+        user_id=user_id,
+        project_dir=project_dir,
+        embedding_client=embedding_client,
+        embedding_model=embedding_model,
+        options=options,
+    )
     retrieved_memories = MemoryRetriever(
         embedding_client=embedding_client,
         embedding_model=embedding_model,
@@ -336,6 +345,9 @@ def _memory_options(config: dict) -> dict[str, Any]:
         "worked_example_min_score": float(
             memory.get("worked_example_min_score") or DEFAULT_WORKED_EXAMPLE_MIN_SCORE
         ),
+        "worked_example_backfill_limit": int(
+            memory.get("worked_example_backfill_limit") or DEFAULT_WORKED_EXAMPLE_BACKFILL_LIMIT
+        ),
     }
 
 
@@ -458,6 +470,46 @@ def _worked_examples_for_prompt(
             }
         )
     return examples
+
+
+def _backfill_activity_inputs_for_examples(
+    *,
+    user_id: str,
+    project_dir: str,
+    embedding_client,
+    embedding_model: str | None,
+    options: dict[str, Any],
+) -> None:
+    if not embedding_client or not hasattr(embedding_client, "embed"):
+        return
+    activities = storage.load_memory_activities(
+        user_id,
+        context_key(project_dir),
+        limit=options["worked_example_backfill_limit"],
+        with_raw_input=False,
+    )
+    for activity in activities:
+        if activity.get("raw_input") and activity.get("input_embedding"):
+            continue
+        session_id = activity.get("session_id") or ""
+        if not session_id:
+            continue
+        conversation = storage.load_conversation(user_id, session_id)
+        if not conversation:
+            continue
+        messages = _trim_messages_for_learn(conversation.get("messages") or [], options)
+        raw_input = _messages_text(messages)
+        if not raw_input:
+            continue
+        vector = _embed_text(raw_input, embedding_client, embedding_model)
+        if not vector:
+            continue
+        storage.update_memory_activity_input(
+            int(activity["id"]),
+            raw_input=raw_input,
+            raw_messages=messages,
+            input_embedding=vector,
+        )
 
 
 def _recall_synthesis_for_prompt(

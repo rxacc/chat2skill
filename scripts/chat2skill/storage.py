@@ -609,6 +609,28 @@ def load_conversations(user_id: str, limit: int = 100) -> list:
     ]
 
 
+def load_conversation(user_id: str, session_id: str) -> Optional[dict]:
+    conn = sqlite3.connect(str(DB_PATH))
+    c = conn.cursor()
+    row = c.execute(
+        """
+        SELECT session_id, messages, feedback, timestamp
+        FROM conversations
+        WHERE user_id = ? AND session_id = ?
+        """,
+        (user_id, session_id),
+    ).fetchone()
+    conn.close()
+    if not row:
+        return None
+    return {
+        "session_id": row[0],
+        "messages": json.loads(row[1]) if row[1] else [],
+        "feedback": json.loads(row[2]) if row[2] else None,
+        "timestamp": row[3],
+    }
+
+
 def save_skill(skill: Skill, user_id: str = "default", embedding_client=None):
     """Save skill to local DB and filesystem."""
     DB_PATH.parent.mkdir(parents=True, exist_ok=True)
@@ -1361,6 +1383,33 @@ def load_memory_activities(
     ).fetchall()
     conn.close()
     return [_memory_activity_from_row(row) for row in rows]
+
+
+def update_memory_activity_input(
+    activity_id: int,
+    *,
+    raw_input: str,
+    raw_messages: list[dict],
+    input_embedding: list[float],
+) -> None:
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.execute(
+        """
+        UPDATE memory_activity
+        SET raw_input = ?,
+            raw_messages = ?,
+            input_embedding = ?
+        WHERE id = ?
+        """,
+        (
+            raw_input,
+            json.dumps(raw_messages or [], ensure_ascii=False),
+            json.dumps(input_embedding or [], ensure_ascii=False),
+            int(activity_id),
+        ),
+    )
+    conn.commit()
+    conn.close()
 
 
 def find_similar_memory_activities(
