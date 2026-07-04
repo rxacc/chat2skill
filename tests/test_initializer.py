@@ -1,4 +1,6 @@
 import tempfile
+import os
+import subprocess
 import unittest
 from pathlib import Path
 from unittest.mock import patch
@@ -31,6 +33,29 @@ class InitializerTests(unittest.TestCase):
             self.assertTrue(skill_dir.exists())
             self.assertTrue((data_home / "contexts").exists())
             self.assertTrue(result["created_config"])
+
+    def test_hook_launcher_initializes_user_home_before_dispatch(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            data_home = Path(tmp) / ".chat2skill"
+            env = os.environ.copy()
+            env["CHAT2SKILL_HOME"] = str(data_home)
+            completed = subprocess.run(
+                [
+                    sys.executable,
+                    str(Path(__file__).resolve().parents[1] / "scripts" / "chat2skill_hook.py"),
+                    "stop-response-guard",
+                ],
+                input="{}\n",
+                text=True,
+                capture_output=True,
+                env=env,
+                check=False,
+            )
+
+            self.assertEqual(completed.returncode, 0, completed.stderr)
+            self.assertTrue((data_home / "config.json").exists())
+            self.assertTrue((data_home / "c2s.db").exists())
+            self.assertTrue((data_home / "skills").exists())
 
 
 if __name__ == "__main__":
