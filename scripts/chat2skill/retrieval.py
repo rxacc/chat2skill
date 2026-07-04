@@ -170,6 +170,16 @@ class MemoryRetriever:
         "episodic": 0.03,
     }
 
+    def __init__(
+        self,
+        embedding_client=None,
+        embedding_model: Optional[str] = None,
+        min_vector_score: float = 0.3,
+    ):
+        self.embedding_client = embedding_client
+        self.embedding_model = embedding_model
+        self.min_vector_score = min_vector_score
+
     def retrieve(
         self,
         task_text: str,
@@ -178,6 +188,7 @@ class MemoryRetriever:
         active_only: bool = True,
     ) -> List[RetrievedMemory]:
         query_tokens = SkillRetriever._tokens(task_text)
+        query_vector = self._embed_query(task_text)
         candidates: List[RetrievedMemory] = []
 
         for memory in memories:
@@ -186,7 +197,7 @@ class MemoryRetriever:
             ):
                 continue
             text = self._memory_text(memory)
-            score = self._score(query_tokens, memory, text)
+            score = self._score(query_tokens, query_vector, memory, text)
             if score <= 0:
                 continue
             candidates.append(RetrievedMemory(memory=memory, score=score))
@@ -199,7 +210,7 @@ class MemoryRetriever:
             ),
             reverse=True,
         )
-        return candidates[: max(0, top_k)]
+        return _mmr_memory_order(candidates)[: max(0, top_k)]
 
     def format_for_prompt(self, retrieved: List[RetrievedMemory]) -> str:
         if not retrieved:
@@ -229,16 +240,37 @@ class MemoryRetriever:
             if part
         )
 
-    def _score(self, query_tokens: set[str], memory: dict, memory_text: str) -> float:
+    def _embed_query(self, task_text: str) -> Optional[List[float]]:
+        if not self.embedding_client or not hasattr(self.embedding_client, "embed"):
+            return None
+        try:
+            return self.embedding_client.embed(task_text, model=self.embedding_model)
+        except Exception:
+            return None
+
+    def _score(
+        self,
+        query_tokens: set[str],
+        query_vector: Optional[List[float]],
+        memory: dict,
+        memory_text: str,
+    ) -> float:
         lexical = similarity.jaccard(query_tokens, SkillRetriever._tokens(memory_text))
         exact = self._exact_boost(query_tokens, memory_text)
-        if query_tokens and lexical <= 0 and exact <= 0:
+        vector = 0.0
+        memory_vector = memory.get("embedding") or []
+        if query_vector and memory_vector:
+            vector = similarity.cosine(query_vector, memory_vector)
+            if vector < self.min_vector_score:
+                vector = 0.0
+        base = max(lexical + exact, vector)
+        if query_tokens and base <= 0:
             return 0.0
         salience = float(memory.get("salience") or 0.5)
         confidence = float(memory.get("confidence") or 0.5)
         memory_type = str(memory.get("memory_type") or "fact")
         type_boost = self.TYPE_WEIGHT.get(memory_type, 0.05)
-        return lexical + exact + (salience * 0.08) + (confidence * 0.06) + type_boost
+        return base + (salience * 0.08) + (confidence * 0.06) + type_boost
 
     @staticmethod
     def _exact_boost(query_tokens: set[str], memory_text: str) -> float:
@@ -248,3 +280,30 @@ class MemoryRetriever:
             if len(token) >= 4 and token in lower:
                 boost += 0.02
         return min(boost, 0.2)
+
+
+def _mmr_memory_order(candidates: List[RetrievedMemory], lambda_: float = 0.72) -> List[RetrievedMemory]:
+    remaining = candidates[:64]
+    picked: List[RetrievedMemory] = []
+    while remaining:
+        best_idx = 0
+        best_score = -1.0
+        for idx, candidate in enumerate(remaining):
+            relevance = candidate.score
+            vector = candidate.memory.get("embedding") or []
+            redundancy = 0.0
+            if vector and picked:
+                redundancy = max(
+                    (
+                        similarity.cosine(vector, item.memory.get("embedding") or [])
+                        for item in picked
+                        if item.memory.get("embedding")
+                    ),
+                    default=0.0,
+                )
+            score = lambda_ * relevance - (1 - lambda_) * redundancy
+            if score > best_score:
+                best_idx = idx
+                best_score = score
+        picked.append(remaining.pop(best_idx))
+    return picked + remaining

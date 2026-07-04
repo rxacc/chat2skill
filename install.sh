@@ -117,6 +117,21 @@ write_hooks_json() {
 EOF
 }
 
+install_optional_node_deps() {
+    local target_root="$1"
+
+    if [ ! -f "${target_root}/package.json" ]; then
+        return 0
+    fi
+    if ! command -v npm >/dev/null 2>&1; then
+        echo "npm not found; local embedding dependencies not installed for ${target_root}"
+        return 0
+    fi
+
+    (cd "${target_root}" && npm install --omit=dev --silent)
+    echo "Installed optional local embedding dependencies in ${target_root}"
+}
+
 sync_install_target() {
     local target="$1"
     local source_real
@@ -140,8 +155,10 @@ sync_install_target() {
         --exclude '*.pyc' \
         --exclude '.DS_Store' \
         --exclude 'config.json' \
+        --exclude 'node_modules/' \
         "${PLUGIN_ROOT}/" "${target}/"
     write_hooks_json "${target}"
+    install_optional_node_deps "${target}"
     echo "Overwrote install target: ${target}"
 }
 
@@ -181,10 +198,12 @@ sync_extra_install_targets() {
 
 write_hooks_json "${PLUGIN_ROOT}"
 echo "Wrote ${PLUGIN_ROOT}/hooks.json"
+install_optional_node_deps "${PLUGIN_ROOT}"
 
 if [ "${OVERWRITE_INSTALLED}" = "1" ]; then
     sync_install_target "${HOME}/plugins/chat2skill"
 
+    sync_child_install_targets "${HOME}/.codex/plugins/cache/chat2skill/chat2skill"
     sync_child_install_targets "${HOME}/.codex/plugins/cache/personal/chat2skill"
     sync_child_install_targets "${HOME}/.codex/.tmp/marketplaces/.staging"
     sync_child_install_targets "${HOME}/.claude/plugins/cache/chat2skill/chat2skill"

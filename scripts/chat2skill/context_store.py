@@ -174,6 +174,7 @@ def save_materialization(
         "materialization_id": result.get("materialization_id"),
         "memories_included": (result.get("memory") or {}).get("memories_included") or [],
         "skills_included": (result.get("skills") or {}).get("skills_included") or [],
+        "activities_included": (result.get("memory") or {}).get("activities_included") or [],
         "query": query,
         "rendered_prompt": result.get("rendered_text") or "",
         "token_count": result.get("token_count"),

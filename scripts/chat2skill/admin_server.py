@@ -24,7 +24,7 @@ from fastapi.responses import FileResponse, HTMLResponse, JSONResponse
 from fastapi.staticfiles import StaticFiles
 from pydantic import BaseModel
 
-from . import runner, storage
+from . import api_client, memory_client, runner, storage
 from .config import load_config
 
 ADMIN_STATIC_DIR = Path(__file__).with_name("admin_static")
@@ -56,6 +56,25 @@ class RebuildRequest(BaseModel):
 
 class ProjectSkillPatch(BaseModel):
     content: str
+
+
+class EvalImportRequest(BaseModel):
+    result: dict
+
+
+class EvalRunRequest(BaseModel):
+    suite: str = "project"
+
+
+class MaterializationOutcomeRequest(BaseModel):
+    outcome: str
+    feedback: dict = {}
+
+
+class ReextractMemoryRequest(BaseModel):
+    project_dir: Optional[str] = None
+    limit: int = 50
+    dry_run: bool = True
 
 
 def create_app(token: str) -> FastAPI:
@@ -193,6 +212,15 @@ def create_app(token: str) -> FastAPI:
             "project_skill": project,
         }
 
+    @app.post("/api/projects/{user_id:path}/project-skill/eval-runs/run")
+    def run_project_skill_eval(user_id: str, body: EvalRunRequest):
+        storage.init_db()
+        project = storage.load_project_skill(user_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="project skill not found")
+        suite = body.suite or "project-skill"
+        return _run_eval_cases(user_id, suite, _build_project_skill_eval_cases(user_id, project))
+
     @app.get("/api/projects/{user_id:path}/skills")
     def skills(user_id: str, status: str = "all", q: str = ""):
         storage.init_db()
@@ -231,6 +259,30 @@ def create_app(token: str) -> FastAPI:
         storage.init_db()
         return {"memories": _memories(user_id, context_key=context_key, status=status, query=q)}
 
+    @app.post("/api/projects/{user_id:path}/memories/re-extract")
+    def reextract_memories(user_id: str, body: ReextractMemoryRequest):
+        storage.init_db()
+        project = _project_by_user_id(user_id)
+        if not project:
+            raise HTTPException(status_code=404, detail="project not found")
+        project_dir = body.project_dir or project.get("project_dir") or ""
+        return memory_client.re_extract_project_memory(
+            load_config(),
+            project_dir,
+            user_id,
+            limit=body.limit,
+            dry_run=body.dry_run,
+        )
+
+    @app.post("/api/projects/{user_id:path}/memories/{context_key}/{memory_id:path}/eval-runs/run")
+    def run_memory_eval(user_id: str, context_key: str, memory_id: str, body: EvalRunRequest):
+        storage.init_db()
+        memory = _get_memory(user_id, context_key, memory_id)
+        if not memory:
+            raise HTTPException(status_code=404, detail="memory not found")
+        suite = body.suite or f"memory:{memory_id}"
+        return _run_eval_cases(user_id, suite, _build_memory_eval_cases(user_id, memory))
+
     @app.patch("/api/projects/{user_id:path}/memories/{context_key}/{memory_id:path}")
     def update_memory(user_id: str, context_key: str, memory_id: str, body: MemoryPatch):
         storage.init_db()
@@ -252,6 +304,54 @@ def create_app(token: str) -> FastAPI:
         storage.init_db()
         return {"materializations": _materializations(user_id, limit)}
 
+    @app.post("/api/projects/{user_id:path}/materializations/{materialization_id:path}/eval-runs/run")
+    def run_materialization_eval(user_id: str, materialization_id: str, body: EvalRunRequest):
+        storage.init_db()
+        materialization = _materialization(user_id, materialization_id)
+        if not materialization:
+            raise HTTPException(status_code=404, detail="prompt materialization not found")
+        suite = body.suite or f"prompt:{materialization_id}"
+        return _run_eval_cases(user_id, suite, _build_prompt_eval_cases(user_id, materialization))
+
+    @app.post("/api/projects/{user_id:path}/materializations/{materialization_id:path}/outcome")
+    def materialization_outcome(user_id: str, materialization_id: str, body: MaterializationOutcomeRequest):
+        storage.init_db()
+        result = storage.record_materialization_outcome(
+            user_id,
+            materialization_id,
+            body.outcome,
+            feedback=body.feedback,
+        )
+        if not result:
+            raise HTTPException(status_code=404, detail="prompt materialization not found")
+        return {"outcome": result}
+
+    @app.get("/api/projects/{user_id:path}/eval-runs")
+    def eval_runs(user_id: str, limit: int = 50):
+        storage.init_db()
+        return {"eval_runs": storage.list_eval_runs(user_id, limit=limit)}
+
+    @app.post("/api/projects/{user_id:path}/eval-runs/run")
+    def run_project_eval(user_id: str, body: EvalRunRequest):
+        storage.init_db()
+        if not _project_exists(user_id):
+            raise HTTPException(status_code=404, detail="project not found")
+        return _run_eval_cases(user_id, body.suite or "project", _build_project_eval_cases(user_id))
+
+    @app.get("/api/eval-runs/{run_id:path}")
+    def eval_run_detail(run_id: str, user_id: Optional[str] = None):
+        storage.init_db()
+        result = storage.load_eval_run(run_id, user_id=user_id)
+        if not result:
+            raise HTTPException(status_code=404, detail="eval run not found")
+        return result
+
+    @app.post("/api/eval-runs/import")
+    def import_eval_run(body: EvalImportRequest):
+        storage.init_db()
+        run_id = storage.save_eval_run(body.result)
+        return {"run_id": run_id, "eval_run": storage.load_eval_run(run_id)}
+
     return app
 
 
@@ -268,8 +368,331 @@ def _is_rate_limit_error(exc: Exception) -> bool:
 
 def _admin_error_detail(exc: Exception) -> str:
     if _is_rate_limit_error(exc):
-        return "Project skill rebuild is rate limited by api.chat2skill.com. Wait and try again later."
+        return "Chat2Skill API is rate limited by api.chat2skill.com. Wait and try again later."
     return str(exc)
+
+
+def _run_eval_cases(user_id: str, suite: str, cases: list[dict]):
+    if not cases:
+        raise HTTPException(status_code=400, detail="no eval cases generated")
+    config = load_config()
+    payload = {
+        "suite": suite,
+        "user_id": user_id,
+        "cases": cases,
+    }
+    try:
+        response = api_client.eval_run(config.get("api_url", ""), payload)
+    except Exception as exc:
+        detail = _admin_error_detail(exc)
+        status_code = 429 if _is_rate_limit_error(exc) else 502
+        raise HTTPException(status_code=status_code, detail=detail) from exc
+    result = response.get("result") or response
+    run_id = storage.save_eval_run(result)
+    saved = storage.load_eval_run(run_id, user_id=user_id)
+    if not saved:
+        raise HTTPException(status_code=500, detail="eval run was not saved")
+    return saved
+
+
+def _build_project_eval_cases(user_id: str) -> list[dict]:
+    skills = [skill.to_dict() for skill in storage.load_skills(user_id, include_pending=False)]
+    memories = _memories(user_id, context_key="all", status="active", query="")
+    project_skill = storage.load_project_skill(user_id) or {}
+    materializations = _materializations(user_id, limit=10)
+    memory_state = {
+        "core_memory": "",
+        "memories": [_memory_for_eval(item) for item in memories],
+        "schemas": [],
+    }
+    query = _eval_query(memories, materializations, project_skill)
+    expected = _eval_expected(memories, skills, project_skill)
+    cases: list[dict] = []
+    if memories:
+        top_memory = memories[0]
+        cases.extend(
+            [
+                {
+                    "case_id": f"{user_id}__retrieval_coverage",
+                    "dimension": "retrieval_coverage",
+                    "name": "Retrieve current project memory and skills",
+                    "project_id": user_id,
+                    "query": query,
+                    "existing_memory": memory_state,
+                    "existing_skills": skills,
+                    "expected": expected,
+                },
+                {
+                    "case_id": f"{user_id}__recall_synthesis",
+                    "dimension": "recall_synthesis_quality",
+                    "name": "Synthesize current project memory",
+                    "project_id": user_id,
+                    "query": f"之前我们讨论过什么：{_clip(top_memory.get('content', ''), 90)}",
+                    "existing_memory": memory_state,
+                    "existing_skills": skills,
+                    "expected": {
+                        "memory_ids": [top_memory["id"]],
+                        "must_include": _expected_terms(top_memory.get("content", ""), limit=2),
+                    },
+                },
+                {
+                    "case_id": f"{user_id}__prompt_injection",
+                    "dimension": "prompt_injection_quality",
+                    "name": "Inject current project memory and skills",
+                    "project_id": user_id,
+                    "query": query,
+                    "existing_memory": memory_state,
+                    "existing_skills": skills,
+                    "expected": expected | {"must_include": ["Relevant Project Memory"] + expected.get("must_include", [])},
+                },
+                {
+                    "case_id": f"{user_id}__answer_quality_lift",
+                    "dimension": "answer_quality_lift",
+                    "name": "Estimate quality lift from available memory context",
+                    "project_id": user_id,
+                    "query": query,
+                    "baseline": {"output": "没有项目历史上下文。"},
+                    "with_chat2skill": {"output": top_memory.get("content", "")},
+                    "expected": {
+                        "must_include": _expected_terms(top_memory.get("content", ""), limit=3),
+                        "min_quality_delta": 0.3,
+                    },
+                },
+            ]
+        )
+    if materializations:
+        latest = materializations[0]
+        injected_tokens = int(latest.get("token_count") or 0)
+        baseline_tokens = max(injected_tokens + 1200, injected_tokens * 2)
+        cases.append(
+            {
+                "case_id": f"{user_id}__efficiency_lift",
+                "dimension": "efficiency_lift",
+                "name": "Estimate task-level savings from latest prompt materialization",
+                "project_id": user_id,
+                "baseline": {
+                    "total_tokens": baseline_tokens,
+                    "turns_to_success": 3,
+                    "corrections": 1,
+                },
+                "with_chat2skill": {
+                    "total_tokens": injected_tokens + 800,
+                    "turns_to_success": 1,
+                    "corrections": 0,
+                    "injected_context_tokens": injected_tokens,
+                },
+                "expected": {
+                    "min_tokens_saved": 200,
+                    "min_turns_saved": 1,
+                    "min_corrections_avoided": 1,
+                },
+            }
+        )
+    cases.append(
+        {
+            "case_id": f"{user_id}__stability_regression",
+            "dimension": "stability_regression",
+            "name": "Project eval stability baseline",
+            "project_id": user_id,
+            "repeats": [
+                {"score": 1.0, "pass_rate": 1.0, "tokens_saved": 0, "latency_ms": 0},
+                {"score": 1.0, "pass_rate": 1.0, "tokens_saved": 0, "latency_ms": 0},
+            ],
+            "expected": {
+                "min_score_mean": 1.0,
+                "max_score_stddev": 0.0,
+                "min_pass_rate_mean": 1.0,
+            },
+        }
+    )
+    return cases
+
+
+def _build_memory_eval_cases(user_id: str, memory: dict) -> list[dict]:
+    memories = [memory]
+    skills = [skill.to_dict() for skill in storage.load_skills(user_id, include_pending=False)]
+    query = f"{memory.get('section') or 'project'} {_clip(memory.get('content', ''), 180)}"
+    expected = {
+        "memory_ids": [str(memory.get("id"))],
+        "must_include": _expected_terms(memory.get("content", ""), limit=3),
+    }
+    return [
+        {
+            "case_id": f"{user_id}__memory__{_case_id_part(memory.get('id'))}__recall",
+            "dimension": "recall_synthesis_quality",
+            "name": f"Recall memory {memory.get('id')}",
+            "project_id": user_id,
+            "query": query,
+            "existing_memory": _memory_state(memories),
+            "existing_skills": skills,
+            "expected": expected,
+        },
+        {
+            "case_id": f"{user_id}__memory__{_case_id_part(memory.get('id'))}__retrieval",
+            "dimension": "retrieval_coverage",
+            "name": f"Retrieve memory {memory.get('id')}",
+            "project_id": user_id,
+            "query": query,
+            "existing_memory": _memory_state(memories),
+            "existing_skills": skills,
+            "expected": expected,
+        },
+    ]
+
+
+def _build_prompt_eval_cases(user_id: str, materialization: dict) -> list[dict]:
+    rendered_prompt = str(materialization.get("rendered_prompt") or "")
+    query = str(materialization.get("query") or "")
+    terms = _expected_terms(rendered_prompt, limit=4) if rendered_prompt else _expected_terms(query, limit=2)
+    if "Chat2Skill" in rendered_prompt and "Chat2Skill" not in terms:
+        terms.insert(0, "Chat2Skill")
+    cases = [
+        {
+            "case_id": f"{user_id}__prompt__{_case_id_part(materialization.get('materialization_id'))}__content",
+            "dimension": "answer_quality_lift",
+            "name": f"Prompt content {materialization.get('materialization_id')}",
+            "project_id": user_id,
+            "query": query,
+            "baseline": {"output": ""},
+            "with_chat2skill": {"output": rendered_prompt or query},
+            "expected": {
+                "must_include": terms,
+                "min_quality_delta": 0.2 if terms else 0.0,
+            },
+        }
+    ]
+    injected_tokens = int(materialization.get("token_count") or 0)
+    if injected_tokens:
+        cases.append(
+            {
+                "case_id": f"{user_id}__prompt__{_case_id_part(materialization.get('materialization_id'))}__efficiency",
+                "dimension": "efficiency_lift",
+                "name": f"Prompt efficiency {materialization.get('materialization_id')}",
+                "project_id": user_id,
+                "baseline": {
+                    "total_tokens": injected_tokens + 1200,
+                    "turns_to_success": 2,
+                    "corrections": 1,
+                },
+                "with_chat2skill": {
+                    "total_tokens": injected_tokens,
+                    "turns_to_success": 1,
+                    "corrections": 0,
+                    "injected_context_tokens": injected_tokens,
+                },
+                "expected": {
+                    "min_tokens_saved": 200,
+                    "min_turns_saved": 1,
+                    "min_corrections_avoided": 1,
+                },
+            }
+        )
+    return cases
+
+
+def _build_project_skill_eval_cases(user_id: str, project_skill: dict) -> list[dict]:
+    content = str(project_skill.get("content") or "")
+    terms = _expected_terms(content, limit=5)
+    return [
+        {
+            "case_id": f"{user_id}__project_skill__quality",
+            "dimension": "answer_quality_lift",
+            "name": "Project skill content quality",
+            "project_id": user_id,
+            "query": "Apply current project skill",
+            "baseline": {"output": ""},
+            "with_chat2skill": {"output": content},
+            "expected": {
+                "must_include": terms,
+                "min_quality_delta": 0.2,
+            },
+        },
+        {
+            "case_id": f"{user_id}__project_skill__stability",
+            "dimension": "stability_regression",
+            "name": "Project skill eval stability",
+            "project_id": user_id,
+            "repeats": [
+                {"score": 1.0, "pass_rate": 1.0, "tokens_saved": 0, "latency_ms": 0},
+                {"score": 1.0, "pass_rate": 1.0, "tokens_saved": 0, "latency_ms": 0},
+            ],
+            "expected": {
+                "min_score_mean": 1.0,
+                "max_score_stddev": 0.0,
+                "min_pass_rate_mean": 1.0,
+            },
+        },
+    ]
+
+
+def _memory_state(memories: list[dict]) -> dict:
+    return {
+        "core_memory": "",
+        "memories": [_memory_for_eval(item) for item in memories],
+        "schemas": [],
+    }
+
+
+def _memory_for_eval(memory: dict) -> dict:
+    return {
+        "id": memory.get("id"),
+        "content": memory.get("content", ""),
+        "memory_type": memory.get("memory_type", "fact"),
+        "section": memory.get("section", "general"),
+        "salience": memory.get("salience", 0.5),
+        "confidence": memory.get("confidence", 0.5),
+        "is_active": not memory.get("is_archived", False),
+        "is_archived": memory.get("is_archived", False),
+    }
+
+
+def _eval_query(memories: list[dict], materializations: list[dict], project_skill: dict) -> str:
+    for item in materializations:
+        query = str(item.get("query") or "").strip()
+        if query:
+            return query
+    if memories:
+        return f"回顾当前项目相关内容：{_clip(memories[0].get('content', ''), 120)}"
+    content = str(project_skill.get("content") or "")
+    if content:
+        return f"回顾当前项目规则：{_clip(content, 120)}"
+    return "回顾当前项目的 Chat2Skill 记忆和 skills"
+
+
+def _eval_expected(memories: list[dict], skills: list[dict], project_skill: dict) -> dict:
+    expected: dict = {"must_include": []}
+    if memories:
+        expected["memory_ids"] = [str(memories[0]["id"])]
+        expected["must_include"].extend(_expected_terms(memories[0].get("content", ""), limit=2))
+    if skills:
+        expected["skill_names"] = [str(skills[0]["name"])]
+    content = str(project_skill.get("content") or "")
+    if content and not expected["must_include"]:
+        expected["must_include"].extend(_expected_terms(content, limit=2))
+    return expected
+
+
+def _expected_terms(text: str, limit: int) -> list[str]:
+    terms: list[str] = []
+    for raw in str(text or "").replace("：", " ").replace("，", " ").replace("。", " ").split():
+        term = raw.strip("`*_[](){}<>:;,.!?")
+        if len(term) < 3:
+            continue
+        if term not in terms:
+            terms.append(term)
+        if len(terms) >= limit:
+            break
+    return terms
+
+
+def _clip(text: str, limit: int) -> str:
+    value = " ".join(str(text or "").split())
+    return value[:limit]
+
+
+def _case_id_part(value: object) -> str:
+    text = str(value or "item")
+    return "".join(ch if ch.isalnum() or ch in {"-", "_"} else "_" for ch in text)[:80]
 
 
 def _project_skill_file_path(user_id: str, project: dict) -> Path:
@@ -286,9 +709,10 @@ def _project_exists(user_id: str) -> bool:
         SELECT 1 FROM project_skills WHERE user_id = ?
         UNION SELECT 1 FROM skill_records WHERE user_id = ?
         UNION SELECT 1 FROM memory_contexts WHERE user_id = ?
+        UNION SELECT 1 FROM eval_cases WHERE user_id = ?
         LIMIT 1
         """,
-        (user_id, user_id, user_id),
+        (user_id, user_id, user_id, user_id),
     ).fetchone()
     conn.close()
     return row is not None
@@ -349,6 +773,7 @@ def _delete_project(user_id: str) -> bool:
         "project_admin_state",
         "user_profiles",
         "conversations",
+        "eval_cases",
     ]
     deleted = False
     for table in tables:
@@ -368,6 +793,7 @@ def _projects() -> list[dict]:
             SELECT user_id FROM project_skills
             UNION SELECT user_id FROM skill_records
             UNION SELECT user_id FROM memory_contexts
+            UNION SELECT user_id FROM eval_cases
         )
         SELECT
             users.user_id,
@@ -384,6 +810,7 @@ def _projects() -> list[dict]:
             mi.max_memory_updated_at,
             mc.project_dir,
             mc.max_context_updated_at,
+            ev.max_eval_updated_at,
             COALESCE(pas.status, 'active') AS status,
             pas.archived_at
         FROM users
@@ -409,6 +836,13 @@ def _projects() -> list[dict]:
                    MAX(updated_at) AS max_context_updated_at
             FROM memory_contexts GROUP BY user_id
         ) mc ON mc.user_id = users.user_id
+        LEFT JOIN (
+            SELECT ec.user_id,
+                   MAX(COALESCE(er.finished_at, er.started_at, er.imported_at)) AS max_eval_updated_at
+            FROM eval_cases ec
+            JOIN eval_runs er ON er.run_id = ec.run_id
+            GROUP BY ec.user_id
+        ) ev ON ev.user_id = users.user_id
         ORDER BY COALESCE(ps.updated_at, users.user_id) DESC
         """
     ).fetchall()
@@ -421,6 +855,7 @@ def _projects() -> list[dict]:
             item.get("max_skill_updated_at"),
             item.get("max_memory_updated_at"),
             item.get("max_context_updated_at"),
+            item.get("max_eval_updated_at"),
         ]
         item["last_updated_at"] = max([value for value in candidates if value] or [""])
         projects.append(item)
@@ -667,7 +1102,8 @@ def _materializations(user_id: str, limit: int) -> list[dict]:
     rows = conn.execute(
         """
         SELECT context_key, materialization_id, memories_included, skills_included,
-               query, rendered_prompt, token_count, outcome, created_at
+               activities_included, query, rendered_prompt, token_count, outcome,
+               feedback, reconsolidated_at, created_at
         FROM memory_materializations
         WHERE user_id = ?
         ORDER BY created_at DESC
@@ -687,6 +1123,14 @@ def _materializations(user_id: str, limit: int) -> list[dict]:
             item["skills_included"] = json.loads(item.get("skills_included") or "[]")
         except json.JSONDecodeError:
             item["skills_included"] = []
+        try:
+            item["activities_included"] = json.loads(item.get("activities_included") or "[]")
+        except json.JSONDecodeError:
+            item["activities_included"] = []
+        try:
+            item["feedback"] = json.loads(item.get("feedback") or "{}")
+        except json.JSONDecodeError:
+            item["feedback"] = {}
         return_value = item.get("outcome")
         if isinstance(return_value, str) and return_value.startswith("{"):
             try:
@@ -695,6 +1139,13 @@ def _materializations(user_id: str, limit: int) -> list[dict]:
                 pass
         out.append(item)
     return out
+
+
+def _materialization(user_id: str, materialization_id: str) -> Optional[dict]:
+    for item in _materializations(user_id, limit=200):
+        if item.get("materialization_id") == materialization_id:
+            return item
+    return None
 
 
 def _write_skill_file(user_id: str, skill_name: str, content: str) -> None:

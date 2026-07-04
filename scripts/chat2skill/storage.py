@@ -229,16 +229,22 @@ def init_db():
             materialization_id TEXT PRIMARY KEY,
             memories_included TEXT,
             skills_included TEXT,
+            activities_included TEXT,
             query TEXT,
             rendered_prompt TEXT,
             token_count INTEGER,
             outcome TEXT,
+            feedback TEXT,
+            reconsolidated_at TEXT,
             created_at TEXT
         )
     """)
     _ensure_column(c, "memory_materializations", "skills_included", "TEXT")
+    _ensure_column(c, "memory_materializations", "activities_included", "TEXT")
     _ensure_column(c, "memory_materializations", "rendered_prompt", "TEXT")
     _ensure_column(c, "memory_materializations", "token_count", "INTEGER")
+    _ensure_column(c, "memory_materializations", "feedback", "TEXT")
+    _ensure_column(c, "memory_materializations", "reconsolidated_at", "TEXT")
     c.execute("""
         CREATE TABLE IF NOT EXISTS memory_activity (
             id INTEGER PRIMARY KEY AUTOINCREMENT,
@@ -246,12 +252,62 @@ def init_db():
             context_key TEXT NOT NULL,
             session_id TEXT,
             raw_input_hash TEXT,
+            raw_input TEXT,
+            raw_messages TEXT,
+            input_embedding TEXT,
+            memory_ids_produced TEXT,
+            feedback TEXT,
+            materialization_id TEXT,
             delta_batch TEXT,
             created_at TEXT
         )
     """)
+    _ensure_column(c, "memory_activity", "raw_input", "TEXT")
+    _ensure_column(c, "memory_activity", "raw_messages", "TEXT")
+    _ensure_column(c, "memory_activity", "input_embedding", "TEXT")
+    _ensure_column(c, "memory_activity", "memory_ids_produced", "TEXT")
+    _ensure_column(c, "memory_activity", "feedback", "TEXT")
+    _ensure_column(c, "memory_activity", "materialization_id", "TEXT")
     c.execute("CREATE INDEX IF NOT EXISTS idx_memory_context ON memory_items (user_id, context_key)")
     c.execute("CREATE INDEX IF NOT EXISTS idx_memory_activity ON memory_activity (user_id, context_key, created_at)")
+
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS eval_runs (
+            run_id TEXT PRIMARY KEY,
+            suite TEXT,
+            status TEXT,
+            started_at TEXT,
+            finished_at TEXT,
+            total_cases INTEGER,
+            passed_cases INTEGER,
+            failed_cases INTEGER,
+            pass_rate REAL,
+            score_mean REAL,
+            score_stddev REAL,
+            metrics TEXT,
+            raw_result TEXT,
+            imported_at TEXT
+        )
+    """)
+    c.execute("""
+        CREATE TABLE IF NOT EXISTS eval_cases (
+            run_id TEXT NOT NULL,
+            case_id TEXT NOT NULL,
+            user_id TEXT NOT NULL,
+            dimension TEXT,
+            name TEXT,
+            status TEXT,
+            score REAL,
+            failure_reason TEXT,
+            metrics TEXT,
+            missing_expected_items TEXT,
+            incorrect_items TEXT,
+            artifacts TEXT,
+            PRIMARY KEY (run_id, case_id)
+        )
+    """)
+    c.execute("CREATE INDEX IF NOT EXISTS idx_eval_cases_user ON eval_cases (user_id, run_id)")
+    c.execute("CREATE INDEX IF NOT EXISTS idx_eval_cases_dimension ON eval_cases (dimension, status)")
 
     c.execute("""
         INSERT OR IGNORE INTO skill_records
@@ -306,7 +362,15 @@ def _migrate_memory_table_names(cursor):
         if not _table_exists(cursor, old_name):
             continue
         if _table_exists(cursor, new_name):
-            cursor.execute(f"INSERT OR IGNORE INTO {new_name} SELECT * FROM {old_name}")
+            old_columns = _table_columns(cursor, old_name)
+            new_columns = _table_columns(cursor, new_name)
+            shared = [column for column in new_columns if column in old_columns]
+            if shared:
+                columns_sql = ", ".join(shared)
+                cursor.execute(
+                    f"INSERT OR IGNORE INTO {new_name} ({columns_sql}) "
+                    f"SELECT {columns_sql} FROM {old_name}"
+                )
             cursor.execute(f"DROP TABLE {old_name}")
         else:
             cursor.execute(f"ALTER TABLE {old_name} RENAME TO {new_name}")
@@ -1021,8 +1085,9 @@ def load_project_memory_context(user_id: str, context_key: str) -> Optional[dict
     ).fetchall()
     materialization_row = c.execute(
         """
-        SELECT materialization_id, memories_included, skills_included, query,
-               rendered_prompt, token_count, outcome
+        SELECT materialization_id, memories_included, skills_included,
+               activities_included, query, rendered_prompt, token_count,
+               outcome, feedback, reconsolidated_at
         FROM memory_materializations
         WHERE user_id = ? AND context_key = ?
         ORDER BY created_at DESC
@@ -1121,8 +1186,9 @@ def save_project_memory_materialization(user_id: str, context_key: str, material
         """
         INSERT OR REPLACE INTO memory_materializations
         (user_id, context_key, materialization_id, memories_included, skills_included,
-         query, rendered_prompt, token_count, outcome, created_at)
-        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+         activities_included, query, rendered_prompt, token_count, outcome, feedback,
+         reconsolidated_at, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             user_id,
@@ -1130,10 +1196,13 @@ def save_project_memory_materialization(user_id: str, context_key: str, material
             materialization_id,
             json.dumps(materialization.get("memories_included") or [], ensure_ascii=False),
             json.dumps(materialization.get("skills_included") or [], ensure_ascii=False),
+            json.dumps(materialization.get("activities_included") or [], ensure_ascii=False),
             materialization.get("query", ""),
             materialization.get("rendered_prompt", ""),
             materialization.get("token_count"),
             materialization.get("outcome"),
+            materialization.get("feedback"),
+            materialization.get("reconsolidated_at"),
             now,
         ),
     )
@@ -1141,29 +1210,358 @@ def save_project_memory_materialization(user_id: str, context_key: str, material
     conn.close()
 
 
-def record_project_memory_activity(user_id: str, context_key: str, session_id: str, memory: dict):
+def record_project_memory_activity(
+    user_id: str,
+    context_key: str,
+    session_id: str,
+    memory: dict,
+    *,
+    raw_input: str = "",
+    raw_messages: Optional[list[dict]] = None,
+    input_embedding: Optional[list[float]] = None,
+    memory_ids_produced: Optional[list[str]] = None,
+    feedback: Optional[dict] = None,
+    materialization_id: Optional[str] = None,
+):
     raw_input_hash = memory.get("raw_input_hash")
-    if not raw_input_hash and not memory.get("delta_batch"):
+    if not raw_input_hash and raw_input:
+        import hashlib
+
+        raw_input_hash = hashlib.sha256(raw_input.encode("utf-8")).hexdigest()
+    if not raw_input_hash and not memory.get("delta_batch") and not raw_input:
         return
     conn = sqlite3.connect(str(DB_PATH))
     c = conn.cursor()
     c.execute(
         """
         INSERT INTO memory_activity
-        (user_id, context_key, session_id, raw_input_hash, delta_batch, created_at)
-        VALUES (?, ?, ?, ?, ?, ?)
+        (user_id, context_key, session_id, raw_input_hash, raw_input, raw_messages,
+         input_embedding, memory_ids_produced, feedback, materialization_id,
+         delta_batch, created_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
         """,
         (
             user_id,
             context_key,
             session_id,
             raw_input_hash,
+            raw_input,
+            json.dumps(raw_messages or [], ensure_ascii=False),
+            json.dumps(input_embedding or [], ensure_ascii=False),
+            json.dumps(memory_ids_produced or [], ensure_ascii=False),
+            json.dumps(feedback or {}, ensure_ascii=False) if feedback else None,
+            materialization_id,
             json.dumps(memory.get("delta_batch") or {}, ensure_ascii=False),
             datetime.now().isoformat(),
         ),
     )
     conn.commit()
     conn.close()
+
+
+def record_materialization_outcome(
+    user_id: str,
+    materialization_id: str,
+    outcome: str,
+    *,
+    feedback: Optional[dict] = None,
+) -> Optional[dict]:
+    """Store prompt outcome and reconsolidate included memories."""
+    now = datetime.now().isoformat()
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    row = conn.execute(
+        """
+        SELECT context_key, memories_included
+        FROM memory_materializations
+        WHERE user_id = ? AND materialization_id = ?
+        """,
+        (user_id, materialization_id),
+    ).fetchone()
+    if not row:
+        conn.close()
+        return None
+    conn.execute(
+        """
+        UPDATE memory_materializations
+        SET outcome = ?, feedback = ?, reconsolidated_at = ?
+        WHERE user_id = ? AND materialization_id = ?
+        """,
+        (
+            outcome,
+            json.dumps(feedback or {}, ensure_ascii=False) if feedback else None,
+            now,
+            user_id,
+            materialization_id,
+        ),
+    )
+    memory_ids = _json_list(row["memories_included"])
+    context_key = row["context_key"]
+    if outcome in {"success", "helpful", "resolved", "accepted"}:
+        for memory_id in memory_ids:
+            conn.execute(
+                """
+                UPDATE memory_items
+                SET recall_count = COALESCE(recall_count, 0) + 1,
+                    hit_count = COALESCE(hit_count, 0) + 1,
+                    salience = MIN(1.0, COALESCE(salience, 0.5) * 1.05),
+                    updated_at = ?
+                WHERE user_id = ? AND context_key = ? AND id = ?
+                """,
+                (now, user_id, context_key, str(memory_id)),
+            )
+    elif outcome in {"failure", "not_helpful", "wrong", "rejected"}:
+        for memory_id in memory_ids:
+            conn.execute(
+                """
+                UPDATE memory_items
+                SET recall_count = COALESCE(recall_count, 0) + 1,
+                    miss_count = COALESCE(miss_count, 0) + 1,
+                    salience = MAX(0.05, COALESCE(salience, 0.5) * 0.92),
+                    updated_at = ?
+                WHERE user_id = ? AND context_key = ? AND id = ?
+                """,
+                (now, user_id, context_key, str(memory_id)),
+            )
+    conn.commit()
+    conn.close()
+    return {
+        "materialization_id": materialization_id,
+        "context_key": context_key,
+        "outcome": outcome,
+        "memories_reconsolidated": len(memory_ids),
+        "reconsolidated_at": now,
+    }
+
+
+def load_memory_activities(
+    user_id: str,
+    context_key: str,
+    *,
+    limit: int = 100,
+    with_raw_input: bool = False,
+) -> list[dict]:
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    where = "WHERE user_id = ? AND context_key = ?"
+    params: list = [user_id, context_key]
+    if with_raw_input:
+        where += " AND COALESCE(raw_input, '') != ''"
+    rows = conn.execute(
+        f"""
+        SELECT id, user_id, context_key, session_id, raw_input_hash, raw_input,
+               raw_messages, input_embedding, memory_ids_produced, feedback,
+               materialization_id, delta_batch, created_at
+        FROM memory_activity
+        {where}
+        ORDER BY created_at DESC, id DESC
+        LIMIT ?
+        """,
+        params + [max(1, min(limit, 1000))],
+    ).fetchall()
+    conn.close()
+    return [_memory_activity_from_row(row) for row in rows]
+
+
+def find_similar_memory_activities(
+    user_id: str,
+    context_key: str,
+    query_embedding: list[float],
+    *,
+    limit: int = 2,
+    min_score: float = 0.82,
+    exclude_raw_input_hash: Optional[str] = None,
+) -> list[dict]:
+    if not query_embedding:
+        return []
+    activities = load_memory_activities(user_id, context_key, limit=500, with_raw_input=True)
+    candidates = []
+    for activity in activities:
+        if exclude_raw_input_hash and activity.get("raw_input_hash") == exclude_raw_input_hash:
+            continue
+        vector = activity.get("input_embedding") or []
+        if not vector:
+            continue
+        score = _cosine(query_embedding, vector)
+        if score < min_score:
+            continue
+        item = dict(activity)
+        item["score"] = score
+        candidates.append(item)
+    candidates.sort(key=lambda item: (item["score"], item.get("created_at") or ""), reverse=True)
+    return candidates[: max(0, limit)]
+
+
+def load_project_memories_by_ids(user_id: str, context_key: str, memory_ids: list[str]) -> list[dict]:
+    ids = [str(item) for item in memory_ids if item]
+    if not ids:
+        return []
+    placeholders = ",".join("?" for _ in ids)
+    conn = sqlite3.connect(str(DB_PATH))
+    rows = conn.execute(
+        f"""
+        SELECT id, content, memory_type, section, salience, confidence, embedding,
+               source_session, source_agent, recall_count, hit_count, miss_count,
+               is_active, is_archived, created_at, updated_at
+        FROM memory_items
+        WHERE user_id = ? AND context_key = ? AND id IN ({placeholders})
+        """,
+        [user_id, context_key] + ids,
+    ).fetchall()
+    conn.close()
+    by_id = {_memory_item_from_row(row)["id"]: _memory_item_from_row(row) for row in rows}
+    return [by_id[item] for item in ids if item in by_id]
+
+
+def save_eval_run(result: dict) -> str:
+    run_id = str(result.get("run_id") or "")
+    if not run_id:
+        raise ValueError("eval result missing run_id")
+    now = datetime.now().isoformat()
+    conn = sqlite3.connect(str(DB_PATH))
+    c = conn.cursor()
+    c.execute(
+        """
+        INSERT OR REPLACE INTO eval_runs
+        (run_id, suite, status, started_at, finished_at, total_cases, passed_cases,
+         failed_cases, pass_rate, score_mean, score_stddev, metrics, raw_result, imported_at)
+        VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+        """,
+        (
+            run_id,
+            result.get("suite", ""),
+            result.get("status", ""),
+            result.get("started_at", ""),
+            result.get("finished_at", ""),
+            int(result.get("total_cases") or 0),
+            int(result.get("passed_cases") or 0),
+            int(result.get("failed_cases") or 0),
+            float(result.get("pass_rate") or 0.0),
+            float(result.get("score_mean") or 0.0),
+            float(result.get("score_stddev") or 0.0),
+            json.dumps(result.get("metrics") or {}, ensure_ascii=False),
+            json.dumps(result, ensure_ascii=False),
+            now,
+        ),
+    )
+    c.execute("DELETE FROM eval_cases WHERE run_id = ?", (run_id,))
+    for case in result.get("cases") or []:
+        user_id = str(case.get("project_id") or case.get("user_id") or "default")
+        c.execute(
+            """
+            INSERT OR REPLACE INTO eval_cases
+            (run_id, case_id, user_id, dimension, name, status, score, failure_reason,
+             metrics, missing_expected_items, incorrect_items, artifacts)
+            VALUES (?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?, ?)
+            """,
+            (
+                run_id,
+                str(case.get("case_id") or ""),
+                user_id,
+                str(case.get("dimension") or ""),
+                str(case.get("name") or ""),
+                str(case.get("status") or ""),
+                float(case.get("score") or 0.0),
+                str(case.get("failure_reason") or ""),
+                json.dumps(case.get("metrics") or {}, ensure_ascii=False),
+                json.dumps(case.get("missing_expected_items") or [], ensure_ascii=False),
+                json.dumps(case.get("incorrect_items") or [], ensure_ascii=False),
+                json.dumps(case.get("artifacts") or {}, ensure_ascii=False),
+            ),
+        )
+    conn.commit()
+    conn.close()
+    return run_id
+
+
+def list_eval_runs(user_id: str, limit: int = 50) -> list[dict]:
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    rows = conn.execute(
+        """
+        SELECT
+            er.run_id, er.suite, er.status, er.started_at, er.finished_at,
+            er.total_cases, er.passed_cases, er.failed_cases, er.pass_rate,
+            er.score_mean, er.score_stddev, er.metrics, er.imported_at,
+            COUNT(ec.case_id) AS project_cases,
+            SUM(CASE WHEN ec.status = 'passed' THEN 1 ELSE 0 END) AS project_passed,
+            SUM(CASE WHEN ec.status != 'passed' THEN 1 ELSE 0 END) AS project_failed
+        FROM eval_runs er
+        JOIN eval_cases ec ON ec.run_id = er.run_id
+        WHERE ec.user_id = ?
+        GROUP BY er.run_id
+        ORDER BY COALESCE(er.finished_at, er.started_at, er.imported_at) DESC
+        LIMIT ?
+        """,
+        (user_id, int(limit)),
+    ).fetchall()
+    conn.close()
+    return [_eval_run_from_row(row) for row in rows]
+
+
+def load_eval_run(run_id: str, user_id: Optional[str] = None) -> Optional[dict]:
+    conn = sqlite3.connect(str(DB_PATH))
+    conn.row_factory = sqlite3.Row
+    run = conn.execute(
+        "SELECT * FROM eval_runs WHERE run_id = ?",
+        (run_id,),
+    ).fetchone()
+    if not run:
+        conn.close()
+        return None
+    if user_id:
+        rows = conn.execute(
+            "SELECT * FROM eval_cases WHERE run_id = ? AND user_id = ? ORDER BY case_id",
+            (run_id, user_id),
+        ).fetchall()
+    else:
+        rows = conn.execute(
+            "SELECT * FROM eval_cases WHERE run_id = ? ORDER BY user_id, case_id",
+            (run_id,),
+        ).fetchall()
+    conn.close()
+    return {
+        "run": _eval_run_from_row(run),
+        "cases": [_eval_case_from_row(row) for row in rows],
+    }
+
+
+def _eval_run_from_row(row) -> dict:
+    return {
+        "run_id": row["run_id"],
+        "suite": row["suite"] or "",
+        "status": row["status"] or "",
+        "started_at": row["started_at"] or "",
+        "finished_at": row["finished_at"] or "",
+        "total_cases": row["total_cases"] or 0,
+        "passed_cases": row["passed_cases"] or 0,
+        "failed_cases": row["failed_cases"] or 0,
+        "pass_rate": row["pass_rate"] or 0.0,
+        "score_mean": row["score_mean"] or 0.0,
+        "score_stddev": row["score_stddev"] or 0.0,
+        "metrics": _json_dict(row["metrics"] if "metrics" in row.keys() else ""),
+        "imported_at": row["imported_at"] if "imported_at" in row.keys() else "",
+        "project_cases": row["project_cases"] if "project_cases" in row.keys() else None,
+        "project_passed": row["project_passed"] if "project_passed" in row.keys() else None,
+        "project_failed": row["project_failed"] if "project_failed" in row.keys() else None,
+    }
+
+
+def _eval_case_from_row(row) -> dict:
+    return {
+        "run_id": row["run_id"],
+        "case_id": row["case_id"],
+        "user_id": row["user_id"],
+        "dimension": row["dimension"] or "",
+        "name": row["name"] or "",
+        "status": row["status"] or "",
+        "score": row["score"] or 0.0,
+        "failure_reason": row["failure_reason"] or "",
+        "metrics": _json_dict(row["metrics"]),
+        "missing_expected_items": _json_list(row["missing_expected_items"]),
+        "incorrect_items": _json_list(row["incorrect_items"]),
+        "artifacts": _json_dict(row["artifacts"]),
+    }
 
 
 def _memory_item_to_row(user_id: str, context_key: str, item: dict, now: str) -> tuple:
@@ -1227,10 +1625,31 @@ def _materialization_from_row(row) -> Optional[dict]:
         "materialization_id": row[0],
         "memories_included": _json_list(row[1]),
         "skills_included": _json_list(row[2]),
-        "query": row[3] or "",
-        "rendered_prompt": row[4] or "",
-        "token_count": row[5],
-        "outcome": row[6],
+        "activities_included": _json_list(row[3]),
+        "query": row[4] or "",
+        "rendered_prompt": row[5] or "",
+        "token_count": row[6],
+        "outcome": row[7],
+        "feedback": _json_dict(row[8]),
+        "reconsolidated_at": row[9],
+    }
+
+
+def _memory_activity_from_row(row) -> dict:
+    return {
+        "id": row["id"],
+        "user_id": row["user_id"],
+        "context_key": row["context_key"],
+        "session_id": row["session_id"] or "",
+        "raw_input_hash": row["raw_input_hash"] or "",
+        "raw_input": row["raw_input"] or "",
+        "raw_messages": _json_list(row["raw_messages"]),
+        "input_embedding": _json_list(row["input_embedding"]),
+        "memory_ids_produced": _json_list(row["memory_ids_produced"]),
+        "feedback": _json_dict(row["feedback"]),
+        "materialization_id": row["materialization_id"] or "",
+        "delta_batch": _json_dict(row["delta_batch"]),
+        "created_at": row["created_at"] or "",
     }
 
 
@@ -1242,6 +1661,16 @@ def _json_list(value: Optional[str]) -> list:
     except json.JSONDecodeError:
         return []
     return data if isinstance(data, list) else []
+
+
+def _json_dict(value: Optional[str]) -> dict:
+    if not value:
+        return {}
+    try:
+        data = json.loads(value)
+    except json.JSONDecodeError:
+        return {}
+    return data if isinstance(data, dict) else {}
 
 
 def _skill_from_record(row) -> Skill:

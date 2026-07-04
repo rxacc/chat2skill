@@ -190,6 +190,172 @@ class AdminServerTests(unittest.TestCase):
         self.assertIn("Relevant Project Memories", records[0]["rendered_prompt"])
         self.assertEqual(records[0]["token_count"], 31)
 
+    def test_imports_and_reads_eval_run(self):
+        payload = {
+            "run_id": "eval-run-1",
+            "suite": "answer_quality_lift",
+            "status": "completed",
+            "started_at": "2026-07-03T10:00:00+00:00",
+            "finished_at": "2026-07-03T10:01:00+00:00",
+            "total_cases": 1,
+            "passed_cases": 1,
+            "failed_cases": 0,
+            "pass_rate": 1.0,
+            "score_mean": 0.9,
+            "score_stddev": 0.0,
+            "metrics": {"tokens_saved_total": 1200, "quality_delta_mean": 0.4},
+            "cases": [
+                {
+                    "case_id": "case-1",
+                    "project_id": "u1",
+                    "dimension": "answer_quality_lift",
+                    "name": "quality lift",
+                    "status": "passed",
+                    "score": 0.9,
+                    "metrics": {"quality_delta": 0.4},
+                    "missing_expected_items": [],
+                    "incorrect_items": [],
+                    "failure_reason": "",
+                    "artifacts": {"query": "pending action"},
+                }
+            ],
+        }
+
+        imported = self.client.post(
+            "/api/eval-runs/import",
+            headers=self.headers,
+            json={"result": payload},
+        )
+        self.assertEqual(imported.status_code, 200)
+        self.assertEqual(imported.json()["run_id"], "eval-run-1")
+
+        runs = self.client.get("/api/projects/u1/eval-runs", headers=self.headers)
+        self.assertEqual(runs.status_code, 200)
+        self.assertEqual(runs.json()["eval_runs"][0]["run_id"], "eval-run-1")
+        self.assertEqual(runs.json()["eval_runs"][0]["project_passed"], 1)
+
+        detail = self.client.get("/api/eval-runs/eval-run-1?user_id=u1", headers=self.headers)
+        self.assertEqual(detail.status_code, 200)
+        body = detail.json()
+        self.assertEqual(body["run"]["metrics"]["tokens_saved_total"], 1200)
+        self.assertEqual(body["cases"][0]["artifacts"]["query"], "pending action")
+
+    def test_runs_project_eval_from_admin_endpoint(self):
+        def fake_eval_run(api_url, payload):
+            self.assertTrue(api_url)
+            self.assertEqual(payload["user_id"], "u1")
+            self.assertGreaterEqual(len(payload["cases"]), 1)
+            return {
+                "result": {
+                    "run_id": "cloud-run-1",
+                    "suite": payload["suite"],
+                    "status": "completed",
+                    "started_at": "2026-07-03T10:00:00+00:00",
+                    "finished_at": "2026-07-03T10:01:00+00:00",
+                    "total_cases": 1,
+                    "passed_cases": 1,
+                    "failed_cases": 0,
+                    "pass_rate": 1.0,
+                    "score_mean": 1.0,
+                    "score_stddev": 0.0,
+                    "metrics": {"tokens_saved_total": 300},
+                    "cases": [
+                        {
+                            "case_id": "cloud-case-1",
+                            "project_id": "u1",
+                            "dimension": "retrieval_coverage",
+                            "name": "retrieval",
+                            "status": "passed",
+                            "score": 1.0,
+                            "metrics": {},
+                            "missing_expected_items": [],
+                            "incorrect_items": [],
+                            "failure_reason": "",
+                            "artifacts": {},
+                        }
+                    ],
+                }
+            }
+
+        with patch.object(admin_server.api_client, "eval_run", side_effect=fake_eval_run):
+            response = self.client.post(
+                "/api/projects/u1/eval-runs/run",
+                headers=self.headers,
+                json={"suite": "project"},
+            )
+
+        self.assertEqual(response.status_code, 200)
+        self.assertEqual(response.json()["run"]["run_id"], "cloud-run-1")
+        runs = self.client.get("/api/projects/u1/eval-runs", headers=self.headers)
+        self.assertEqual(runs.json()["eval_runs"][0]["run_id"], "cloud-run-1")
+
+    def test_runs_contextual_eval_endpoints(self):
+        seen = []
+
+        def fake_eval_run(api_url, payload):
+            self.assertTrue(api_url)
+            self.assertEqual(payload["user_id"], "u1")
+            self.assertGreaterEqual(len(payload["cases"]), 1)
+            seen.append((payload["suite"], [case["dimension"] for case in payload["cases"]]))
+            return {
+                "result": {
+                    "run_id": f"run-{len(seen)}",
+                    "suite": payload["suite"],
+                    "status": "completed",
+                    "started_at": "2026-07-03T10:00:00+00:00",
+                    "finished_at": "2026-07-03T10:01:00+00:00",
+                    "total_cases": 1,
+                    "passed_cases": 1,
+                    "failed_cases": 0,
+                    "pass_rate": 1.0,
+                    "score_mean": 1.0,
+                    "score_stddev": 0.0,
+                    "metrics": {},
+                    "cases": [
+                        {
+                            "case_id": payload["cases"][0]["case_id"],
+                            "project_id": "u1",
+                            "dimension": payload["cases"][0]["dimension"],
+                            "name": payload["cases"][0]["name"],
+                            "status": "passed",
+                            "score": 1.0,
+                            "metrics": {},
+                            "missing_expected_items": [],
+                            "incorrect_items": [],
+                            "failure_reason": "",
+                            "artifacts": {},
+                        }
+                    ],
+                }
+            }
+
+        requests = [
+            ("/api/projects/u1/memories/project/m1/eval-runs/run", "memory:m1"),
+            ("/api/projects/u1/materializations/mat-1/eval-runs/run", "prompt:mat-1"),
+            ("/api/projects/u1/project-skill/eval-runs/run", "project-skill"),
+        ]
+        with patch.object(admin_server.api_client, "eval_run", side_effect=fake_eval_run):
+            for path, suite in requests:
+                response = self.client.post(path, headers=self.headers, json={"suite": suite})
+                self.assertEqual(response.status_code, 200)
+                self.assertEqual(response.json()["run"]["suite"], suite)
+
+        suites = [item[0] for item in seen]
+        self.assertEqual(suites, [suite for _, suite in requests])
+        dimensions = {suite: values for suite, values in seen}
+        self.assertIn("recall_synthesis_quality", dimensions["memory:m1"])
+        self.assertIn("answer_quality_lift", dimensions["prompt:mat-1"])
+        self.assertIn("answer_quality_lift", dimensions["project-skill"])
+
+    def test_prompt_eval_uses_saved_prompt_text_without_exact_memory_id_match(self):
+        materialization = admin_server._materialization("u1", "mat-1")
+        cases = admin_server._build_prompt_eval_cases("u1", materialization)
+        content_case = next(item for item in cases if item["case_id"].endswith("__content"))
+        self.assertEqual(content_case["dimension"], "answer_quality_lift")
+        self.assertNotIn("memory_ids", content_case["expected"])
+        self.assertNotIn("skill_names", content_case["expected"])
+        self.assertIn("Chat2Skill", content_case["with_chat2skill"]["output"])
+
 
 if __name__ == "__main__":
     unittest.main()

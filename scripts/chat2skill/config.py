@@ -18,6 +18,9 @@ CONFIG_PATH = DATA_HOME / "config.json"
 CONTEXTS_DIR = DATA_HOME / "contexts"
 
 DEFAULT_API_URL = "https://api.chat2skill.com"
+DEFAULT_LOCAL_EMBEDDING_MODEL = "Snowflake/snowflake-arctic-embed-xs"
+DEFAULT_LOCAL_EMBEDDING_DIMENSIONS = 384
+DEFAULT_REMOTE_EMBEDDING_MODEL = "text-embedding-3-small"
 
 
 def load_config() -> dict:
@@ -68,6 +71,31 @@ def load_config() -> dict:
     llm.setdefault("model", "gpt-4.1")
     config["llm"] = llm
 
+    embedding = dict(config.get("embedding") or {})
+    if os.environ.get("CHAT2SKILL_EMBEDDING_PROVIDER"):
+        embedding["provider"] = os.environ["CHAT2SKILL_EMBEDDING_PROVIDER"]
+    if os.environ.get("CHAT2SKILL_EMBEDDING_API_KEY"):
+        embedding["api_key"] = os.environ["CHAT2SKILL_EMBEDDING_API_KEY"]
+    if os.environ.get("CHAT2SKILL_EMBEDDING_BASE_URL"):
+        embedding["base_url"] = os.environ["CHAT2SKILL_EMBEDDING_BASE_URL"]
+    if os.environ.get("CHAT2SKILL_EMBEDDING_MODEL"):
+        embedding["model"] = os.environ["CHAT2SKILL_EMBEDDING_MODEL"]
+    if os.environ.get("CHAT2SKILL_EMBEDDING_DIMENSIONS"):
+        try:
+            embedding["dimensions"] = int(os.environ["CHAT2SKILL_EMBEDDING_DIMENSIONS"])
+        except ValueError:
+            pass
+    if not embedding.get("api_key") and os.environ.get("OPENAI_API_KEY"):
+        embedding["api_key"] = os.environ["OPENAI_API_KEY"]
+    if not embedding.get("base_url") and os.environ.get("OPENAI_BASE_URL"):
+        embedding["base_url"] = os.environ["OPENAI_BASE_URL"]
+    if embedding.get("provider") == "local_transformers":
+        embedding.setdefault("model", DEFAULT_LOCAL_EMBEDDING_MODEL)
+        embedding.setdefault("dimensions", DEFAULT_LOCAL_EMBEDDING_DIMENSIONS)
+    else:
+        embedding.setdefault("model", llm.get("embedding_model") or DEFAULT_REMOTE_EMBEDDING_MODEL)
+    config["embedding"] = embedding
+
     if os.environ.get("CHAT2SKILL_USER_ID"):
         config["user_id"] = os.environ["CHAT2SKILL_USER_ID"]
     return config
@@ -78,12 +106,39 @@ def llm_payload(config: dict) -> Optional[dict]:
     llm = config.get("llm") or {}
     if not llm.get("api_key"):
         return None
-    return {
+    payload = {
         "api_key": llm["api_key"],
         "base_url": llm.get("base_url"),
         "model": llm.get("model", "gpt-4.1"),
         "embedding_model": llm.get("embedding_model"),
     }
+    embedding = embedding_payload(config)
+    if embedding:
+        payload["embedding_api_key"] = embedding["api_key"]
+        payload["embedding_base_url"] = embedding.get("base_url")
+        payload["embedding_model"] = embedding.get("model")
+    return payload
+
+
+def embedding_payload(config: dict) -> Optional[dict]:
+    embedding = config.get("embedding") or {}
+    if embedding.get("provider") == "local_transformers":
+        return None
+    if not embedding.get("api_key"):
+        return None
+    return {
+        "api_key": embedding["api_key"],
+        "base_url": embedding.get("base_url"),
+        "model": embedding.get("model") or DEFAULT_REMOTE_EMBEDDING_MODEL,
+    }
+
+
+def embedding_config(config: dict) -> dict:
+    embedding = dict(config.get("embedding") or {})
+    if embedding.get("provider") == "local_transformers":
+        embedding.setdefault("model", DEFAULT_LOCAL_EMBEDDING_MODEL)
+        embedding.setdefault("dimensions", DEFAULT_LOCAL_EMBEDDING_DIMENSIONS)
+    return embedding
 
 
 def base_user_id(config: Optional[dict] = None) -> str:

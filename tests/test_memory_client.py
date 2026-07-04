@@ -15,9 +15,11 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from chat2skill import memory_client, runner
 from chat2skill.context_store import apply_memory_result, load_context, save_context
+from chat2skill.embedding_client import LocalTransformersEmbeddingClient
 from chat2skill.i18n import LANGUAGES
 from chat2skill.models import MemoryItem, Skill
 from chat2skill.recall_policy import should_synthesize_recall
+from chat2skill.retrieval import MemoryRetriever
 import hook_user_prompt_submit
 import process_stop_queue
 
@@ -34,6 +36,141 @@ def _config() -> dict:
 
 
 class MemoryClientTests(unittest.TestCase):
+    def test_llm_payload_includes_separate_embedding_config(self):
+        payload = memory_client.llm_payload(
+            {
+                "llm": {
+                    "api_key": "chat-key-123",
+                    "base_url": "https://chat.example/v1",
+                    "model": "gpt-test",
+                },
+                "embedding": {
+                    "api_key": "embed-key-123",
+                    "base_url": "http://127.0.0.1:5831/v1",
+                    "model": "local-embed",
+                },
+            }
+        )
+
+        self.assertEqual(payload["api_key"], "chat-key-123")
+        self.assertEqual(payload["embedding_api_key"], "embed-key-123")
+        self.assertEqual(payload["embedding_base_url"], "http://127.0.0.1:5831/v1")
+        self.assertEqual(payload["embedding_model"], "local-embed")
+
+    def test_local_transformers_embedding_stays_local(self):
+        payload = memory_client.llm_payload(
+            {
+                "llm": {
+                    "api_key": "chat-key-123",
+                    "base_url": "https://chat.example/v1",
+                    "model": "gpt-test",
+                },
+                "embedding": {
+                    "provider": "local_transformers",
+                    "model": "Snowflake/snowflake-arctic-embed-xs",
+                    "dimensions": 384,
+                },
+            }
+        )
+
+        self.assertEqual(payload["api_key"], "chat-key-123")
+        self.assertNotIn("embedding_api_key", payload)
+        self.assertIsInstance(
+            memory_client._build_embedding_client(  # pylint: disable=protected-access
+                {
+                    "embedding": {
+                        "provider": "local_transformers",
+                        "model": "Snowflake/snowflake-arctic-embed-xs",
+                        "dimensions": 384,
+                    }
+                }
+            ),
+            LocalTransformersEmbeddingClient,
+        )
+
+    def test_local_transformers_client_calls_node_helper(self):
+        completed = type(
+            "Completed",
+            (),
+            {
+                "returncode": 0,
+                "stdout": json.dumps({"vectors": [[0.1, 0.2], [0.3, 0.4]]}),
+                "stderr": "",
+            },
+        )()
+        with patch("chat2skill.embedding_client.subprocess.run", return_value=completed) as run:
+            client = LocalTransformersEmbeddingClient(
+                model="Snowflake/snowflake-arctic-embed-xs",
+                dimensions=384,
+                node_path="/usr/bin/node",
+            )
+            vectors = client.embed_many(["one", "two"])
+
+        self.assertEqual(vectors, [[0.1, 0.2], [0.3, 0.4]])
+        self.assertEqual(run.call_args.args[0][0], "/usr/bin/node")
+        body = json.loads(run.call_args.kwargs["input"])
+        self.assertEqual(body["model"], "Snowflake/snowflake-arctic-embed-xs")
+        self.assertEqual(body["dimensions"], 384)
+
+    def test_memory_retriever_prefers_embedding_match(self):
+        class FakeEmbedder:
+            def embed(self, text, model=None):
+                return [1.0, 0.0]
+
+        memories = [
+            {
+                "id": "wrong-lexical",
+                "content": "agentos pending action sms signal",
+                "memory_type": "decision",
+                "section": "project",
+                "salience": 0.9,
+                "confidence": 0.9,
+                "embedding": [0.0, 1.0],
+            },
+            {
+                "id": "right-semantic",
+                "content": "evolution service has been shut down and no code changes are needed.",
+                "memory_type": "fact",
+                "section": "project",
+                "salience": 0.5,
+                "confidence": 0.8,
+                "embedding": [0.99, 0.01],
+            },
+        ]
+
+        retrieved = MemoryRetriever(embedding_client=FakeEmbedder()).retrieve(
+            "agentos evolution 服务关闭 不用改代码",
+            memories,
+            top_k=2,
+        )
+
+        self.assertEqual(retrieved[0].memory["id"], "right-semantic")
+
+    def test_context_memories_get_local_embeddings(self):
+        class FakeEmbedder:
+            def embed_many(self, texts, model=None):
+                return [[0.1, 0.2] for _ in texts]
+
+        context = {
+            "memories": [
+                {
+                    "id": "m1",
+                    "content": "evolution service is shut down",
+                    "memory_type": "fact",
+                    "section": "project",
+                    "embedding": [],
+                }
+            ]
+        }
+
+        memory_client._embed_context_memories(  # pylint: disable=protected-access
+            context,
+            FakeEmbedder(),
+            "Snowflake/snowflake-arctic-embed-xs",
+        )
+
+        self.assertEqual(context["memories"][0]["embedding"], [0.1, 0.2])
+
     def test_recall_policy_uses_profile_markers(self):
         self.assertTrue(should_synthesize_recall("pending action 之前我们讨论过什么"))
         self.assertTrue(should_synthesize_recall("what did we decide last time about pending action"))
@@ -352,8 +489,189 @@ class MemoryClientTests(unittest.TestCase):
             self.assertFalse(list(context_dir.rglob("*.json")))
             conn = sqlite3.connect(str(db_path))
             activity_count = conn.execute("SELECT COUNT(*) FROM memory_activity").fetchone()[0]
+            activity_row = conn.execute(
+                """
+                SELECT raw_input, raw_messages, memory_ids_produced
+                FROM memory_activity
+                """
+            ).fetchone()
             conn.close()
             self.assertEqual(activity_count, 1)
+            self.assertIn("remember EC2 deploy", activity_row[0])
+            self.assertEqual(json.loads(activity_row[1])[0]["content"], "remember EC2 deploy")
+            self.assertEqual(json.loads(activity_row[2]), ["b1"])
+
+    def test_materialize_includes_similar_prior_tasks_from_activity_embeddings(self):
+        class FakeEmbedder:
+            def embed(self, text, model=None):
+                return [1.0, 0.0]
+
+        with tempfile.TemporaryDirectory() as tmp:
+            context_dir = Path(tmp) / "contexts"
+            db_path = Path(tmp) / "c2s.db"
+            skill_dir = Path(tmp) / "skills"
+
+            with patch("chat2skill.context_store.CONTEXTS_DIR", context_dir):
+                with patch.object(memory_client.storage, "DB_PATH", db_path):
+                    with patch.object(memory_client.storage, "SKILL_DIR", skill_dir):
+                        memory_client.storage.init_db()
+                        save_context(
+                            "/repo/project",
+                            "user-1",
+                            {
+                                "core_memory": "",
+                                "memories": [
+                                    {
+                                        "id": "m-worked",
+                                        "content": "Prior EC2 rollout used the approval path.",
+                                        "memory_type": "decision",
+                                        "section": "deployment",
+                                        "confidence": 0.9,
+                                        "salience": 0.9,
+                                        "embedding": [1.0, 0.0],
+                                    }
+                                ],
+                                "schemas": [],
+                                "recent_raw_hashes": [],
+                            },
+                        )
+                        project_key = memory_client.context_key("/repo/project")
+                        memory_client.storage.record_project_memory_activity(
+                            "user-1",
+                            project_key,
+                            "session-worked",
+                            {"raw_input_hash": "raw-worked", "delta_batch": {}},
+                            raw_input="How did we handle the prior EC2 rollout?",
+                            raw_messages=[
+                                {
+                                    "role": "user",
+                                    "content": "How did we handle the prior EC2 rollout?",
+                                }
+                            ],
+                            input_embedding=[1.0, 0.0],
+                            memory_ids_produced=["m-worked"],
+                        )
+                        with patch.object(memory_client, "_build_embedding_client", return_value=FakeEmbedder()):
+                            result = memory_client.materialize_for_prompt(
+                                _config(),
+                                "/repo/project",
+                                "current EC2 rollout",
+                                "user-1",
+                            )
+
+            self.assertIn("Similar Prior Tasks", result["rendered_text"])
+            self.assertIn("How did we handle the prior EC2 rollout?", result["rendered_text"])
+            self.assertIn("Prior EC2 rollout used the approval path.", result["rendered_text"])
+            self.assertEqual(result["memory"]["activities_included"], ["1"])
+
+    def test_materialization_outcome_reconsolidates_included_memories(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "c2s.db"
+            skill_dir = Path(tmp) / "skills"
+            with patch.object(memory_client.storage, "DB_PATH", db_path):
+                with patch.object(memory_client.storage, "SKILL_DIR", skill_dir):
+                    memory_client.storage.init_db()
+                    save_context(
+                        "/repo/project",
+                        "user-1",
+                        {
+                            "core_memory": "",
+                            "memories": [
+                                {
+                                    "id": "m1",
+                                    "content": "Use approval path.",
+                                    "memory_type": "decision",
+                                    "section": "project",
+                                    "salience": 0.5,
+                                    "confidence": 0.9,
+                                }
+                            ],
+                            "schemas": [],
+                            "recent_raw_hashes": [],
+                        },
+                    )
+                    project_key = memory_client.context_key("/repo/project")
+                    memory_client.storage.save_project_memory_materialization(
+                        "user-1",
+                        project_key,
+                        {
+                            "materialization_id": "mat-1",
+                            "memories_included": ["m1"],
+                            "skills_included": [],
+                            "query": "approval",
+                            "rendered_prompt": "Use approval path.",
+                        },
+                    )
+                    result = memory_client.storage.record_materialization_outcome(
+                        "user-1",
+                        "mat-1",
+                        "success",
+                        feedback={"note": "useful"},
+                    )
+                    conn = sqlite3.connect(str(db_path))
+                    row = conn.execute(
+                        """
+                        SELECT recall_count, hit_count, miss_count, salience
+                        FROM memory_items
+                        WHERE id = 'm1'
+                        """
+                    ).fetchone()
+                    mat = conn.execute(
+                        """
+                        SELECT outcome, feedback, reconsolidated_at
+                        FROM memory_materializations
+                        WHERE materialization_id = 'mat-1'
+                        """
+                    ).fetchone()
+                    conn.close()
+
+            self.assertEqual(result["memories_reconsolidated"], 1)
+            self.assertEqual(row[0], 1)
+            self.assertEqual(row[1], 1)
+            self.assertEqual(row[2], 0)
+            self.assertGreater(row[3], 0.5)
+            self.assertEqual(mat[0], "success")
+            self.assertEqual(json.loads(mat[1]), {"note": "useful"})
+            self.assertTrue(mat[2])
+
+    def test_reextract_project_memory_dry_run_uses_stored_raw_messages(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "c2s.db"
+            skill_dir = Path(tmp) / "skills"
+            with patch.object(memory_client.storage, "DB_PATH", db_path):
+                with patch.object(memory_client.storage, "SKILL_DIR", skill_dir):
+                    memory_client.storage.init_db()
+                    save_context(
+                        "/repo/project",
+                        "user-1",
+                        {
+                            "core_memory": "",
+                            "memories": [],
+                            "schemas": [],
+                            "recent_raw_hashes": [],
+                        },
+                    )
+                    project_key = memory_client.context_key("/repo/project")
+                    memory_client.storage.record_project_memory_activity(
+                        "user-1",
+                        project_key,
+                        "session-raw",
+                        {"raw_input_hash": "raw-1", "delta_batch": {}},
+                        raw_input="remember the approval decision",
+                        raw_messages=[{"role": "user", "content": "remember the approval decision"}],
+                    )
+                    with patch.object(memory_client.api_client, "unified_learn") as learn:
+                        result = memory_client.re_extract_project_memory(
+                            _config(),
+                            "/repo/project",
+                            "user-1",
+                            dry_run=True,
+                        )
+
+            learn.assert_not_called()
+            self.assertEqual(result["status"], "preview")
+            self.assertEqual(result["activities_found"], 1)
+            self.assertEqual(result["activities"][0]["session_id"], "session-raw")
 
     def test_init_db_migrates_prefixed_memory_tables(self):
         with tempfile.TemporaryDirectory() as tmp:

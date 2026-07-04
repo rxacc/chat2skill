@@ -26,6 +26,10 @@ function formatTime(value) {
   return String(value).replace("T", " ").slice(0, 19);
 }
 
+function formatPercent(value) {
+  return `${Math.round(Number(value || 0) * 1000) / 10}%`;
+}
+
 function sortProjects(projects, sortMode) {
   const sorted = [...projects];
   const text = (value) => String(value || "").toLowerCase();
@@ -189,7 +193,7 @@ function App() {
             )
           ),
           e("div", { className: "tabs" },
-            ["skills", "memories", "prompts", "project-skill", "overview"].map((name) =>
+            ["skills", "memories", "prompts", "project-skill", "overview", "evals"].map((name) =>
               e("button", {
                 key: name,
                 className: `tab ${tab === name ? "active" : ""}`,
@@ -203,6 +207,7 @@ function App() {
           tab === "skills" ? e(SkillsTab, { userId: selected, setError, refreshKey }) : null,
           tab === "memories" ? e(MemoriesTab, { userId: selected, setError, refreshKey }) : null,
           tab === "prompts" ? e(PromptsTab, { userId: selected, setError, refreshKey }) : null,
+          tab === "evals" ? e(EvalsTab, { userId: selected, setError, refreshKey }) : null,
           tab === "project-skill" ? e(ProjectSkillTab, { userId: selected, setError, refreshProjects: loadProjects, refreshKey }) : null,
           tab === "overview" ? e(OverviewTab, { userId: selected, setError, refreshKey }) : null
         )
@@ -296,7 +301,9 @@ function SkillsTab({ userId, setError, refreshKey }) {
 function SkillEditor({ userId, detail, onSaved, setError }) {
   const skill = detail.skill;
   const [draft, setDraft] = React.useState(skill);
-  React.useEffect(() => setDraft(skill), [skill.name]);
+  React.useEffect(() => {
+    setDraft(skill);
+  }, [skill.name]);
 
   const save = () => {
     api(`/api/projects/${enc(userId)}/skills/${enc(skill.name)}`, {
@@ -406,7 +413,12 @@ function MemoriesTab({ userId, setError, refreshKey }) {
 
 function MemoryEditor({ userId, memory, onSaved, setError }) {
   const [draft, setDraft] = React.useState(memory);
-  React.useEffect(() => setDraft(memory), [memory.id]);
+  const [evaluating, setEvaluating] = React.useState(false);
+  const [evalRun, setEvalRun] = React.useState("");
+  React.useEffect(() => {
+    setDraft(memory);
+    setEvalRun("");
+  }, [memory.id]);
   const set = (key, value) => setDraft({ ...draft, [key]: value });
   const save = () => {
     api(`/api/projects/${enc(userId)}/memories/${enc(memory.context_key)}/${enc(memory.id)}`, {
@@ -420,9 +432,29 @@ function MemoryEditor({ userId, memory, onSaved, setError }) {
       .then(onSaved)
       .catch((err) => setError(err.message));
   };
+  const runEval = () => {
+    if (evaluating) return;
+    setEvaluating(true);
+    setError("");
+    api(`/api/projects/${enc(userId)}/memories/${enc(memory.context_key)}/${enc(memory.id)}/eval-runs/run`, {
+      method: "POST",
+      body: JSON.stringify({ suite: `memory:${memory.id}` }),
+    })
+      .then((data) => setEvalRun(data.run?.run_id || "completed"))
+      .catch((err) => setError(err.message))
+      .finally(() => setEvaluating(false));
+  };
   return e("div", { className: "panel" },
-    e("h3", null, memory.id),
-    e("div", { className: "meta panel-meta" }, `created ${formatTime(memory.created_at)} · updated ${formatTime(memory.updated_at)}`),
+    e("div", { className: "topbar" },
+      e("div", null,
+        e("h3", null, memory.id),
+        e("div", { className: "meta panel-meta" }, `created ${formatTime(memory.created_at)} · updated ${formatTime(memory.updated_at)}`)
+      ),
+      e("div", { className: "actions compact" },
+        e("button", { onClick: runEval, disabled: evaluating }, evaluating ? "Evaluating..." : "Run Recall Eval")
+      )
+    ),
+    evalRun ? e("div", { className: "meta panel-meta" }, `eval saved ${evalRun}`) : null,
     e("div", { className: "fields" },
       e(Field, { label: "Type" }, e("input", { value: draft.memory_type || "", onChange: (event) => set("memory_type", event.target.value) })),
       e(Field, { label: "Section" }, e("input", { value: draft.section || "", onChange: (event) => set("section", event.target.value) })),
@@ -497,20 +529,41 @@ function PromptsTab({ userId, setError, refreshKey }) {
           e("div", { className: "meta" }, `${(record.memories_included || []).length} memories · ${(record.skills_included || []).length} skills`)
         ))
       ),
-      selected ? e(PromptDetail, { record: selected }) : e("div", { className: "empty" }, "Select a prompt.")
+      selected ? e(PromptDetail, { userId, record: selected, setError }) : e("div", { className: "empty" }, "Select a prompt.")
     )
   );
 }
 
-function PromptDetail({ record }) {
+function PromptDetail({ userId, record, setError }) {
   const injected = record.rendered_prompt || "";
+  const [evaluating, setEvaluating] = React.useState(false);
+  const [evalRun, setEvalRun] = React.useState("");
+  React.useEffect(() => {
+    setEvalRun("");
+  }, [record.materialization_id]);
+  const runEval = () => {
+    if (evaluating) return;
+    setEvaluating(true);
+    setError("");
+    api(`/api/projects/${enc(userId)}/materializations/${enc(record.materialization_id)}/eval-runs/run`, {
+      method: "POST",
+      body: JSON.stringify({ suite: `prompt:${record.materialization_id}` }),
+    })
+      .then((data) => setEvalRun(data.run?.run_id || "completed"))
+      .catch((err) => setError(err.message))
+      .finally(() => setEvaluating(false));
+  };
   return e("div", { className: "panel prompt-detail" },
     e("div", { className: "topbar" },
       e("div", null,
         e("h3", null, "Chat2Skill Prompt"),
         e("div", { className: "meta" }, `${record.materialization_id} · ${record.context_key || "project"} · ${formatTime(record.created_at)}`)
+      ),
+      e("div", { className: "actions compact" },
+        e("button", { onClick: runEval, disabled: evaluating }, evaluating ? "Evaluating..." : "Run Eval")
       )
     ),
+    evalRun ? e("div", { className: "meta panel-meta" }, `eval saved ${evalRun}`) : null,
     e("div", { className: "prompt-section" },
       e("h4", null, "User Prompt"),
       e("div", { className: "markdown prompt-text" }, record.query || "")
@@ -536,9 +589,187 @@ function PromptDetail({ record }) {
   );
 }
 
+function EvalsTab({ userId, setError, refreshKey }) {
+  const [runs, setRuns] = React.useState([]);
+  const [selectedRun, setSelectedRun] = React.useState("");
+  const [detail, setDetail] = React.useState(null);
+  const [limit, setLimit] = React.useState(50);
+  const overallTokensSaved = runs.reduce((total, run) => total + tokensSavedTotal(run), 0);
+
+  const load = React.useCallback(() => {
+    api(`/api/projects/${enc(userId)}/eval-runs?limit=${enc(limit)}`)
+      .then((data) => {
+        const nextRuns = data.eval_runs || [];
+        setRuns(nextRuns);
+        setSelectedRun((current) =>
+          nextRuns.some((run) => run.run_id === current) ? current : (nextRuns[0]?.run_id || "")
+        );
+        if (!nextRuns.length) setDetail(null);
+        setError("");
+      })
+      .catch((err) => setError(err.message));
+  }, [userId, limit]);
+
+  React.useEffect(() => {
+    setSelectedRun("");
+    setDetail(null);
+  }, [userId]);
+
+  React.useEffect(() => {
+    load();
+  }, [userId, limit, refreshKey]);
+
+  React.useEffect(() => {
+    if (!selectedRun) return;
+    api(`/api/eval-runs/${enc(selectedRun)}?user_id=${enc(userId)}`)
+      .then((data) => {
+        setDetail(data);
+        setError("");
+      })
+      .catch((err) => setError(err.message));
+  }, [userId, selectedRun]);
+
+  return e("section", { className: "eval-page" },
+    e("div", { className: "toolbar prompts-toolbar" },
+      e("select", { value: limit, onChange: (event) => setLimit(Number(event.target.value)) },
+        [25, 50, 100, 200].map((item) => e("option", { key: item, value: item }, `${item} latest`))
+      ),
+      e("button", { onClick: load }, "Reload"),
+      e("span", { className: "meta" }, `${runs.length} runs`),
+      e("span", { className: "meta" }, `overall saved ${formatInteger(overallTokensSaved)} tokens`)
+    ),
+    e("div", { className: "eval-layout" },
+      e("div", { className: "panel eval-runs-panel" },
+        e("div", { className: "panel-heading" },
+          e("h3", null, "Eval runs"),
+          e("span", { className: "meta" }, `${runs.length} total`)
+        ),
+        e("div", { className: "eval-run-list" },
+        runs.map((run) => e("button", {
+          key: run.run_id,
+          className: `eval-run-card ${run.run_id === selectedRun ? "active" : ""}`,
+          onClick: () => setSelectedRun(run.run_id),
+        },
+          e("div", { className: "item-title" },
+            e("span", null, run.suite || run.run_id),
+            e("span", { className: `badge ${run.status === "completed" ? "ok" : "warn"}` }, run.status || "unknown")
+          ),
+          e("div", { className: "meta" }, `${run.project_passed ?? run.passed_cases}/${run.project_cases ?? run.total_cases} passed · score ${Number(run.score_mean || 0).toFixed(2)}`),
+          e("div", { className: "meta" }, `saved ${formatInteger(tokensSavedTotal(run))} tokens`),
+          e("div", { className: "meta" }, formatTime(run.finished_at || run.imported_at))
+        ))
+        )
+      ),
+      detail ? e(EvalRunDetail, { detail }) : e("div", { className: "empty" }, "Select an eval run.")
+    )
+  );
+}
+
+function EvalRunDetail({ detail }) {
+  const run = detail.run || {};
+  const cases = detail.cases || [];
+  const [selectedCaseId, setSelectedCaseId] = React.useState(cases[0]?.case_id || "");
+  React.useEffect(() => {
+    setSelectedCaseId(cases[0]?.case_id || "");
+  }, [run.run_id]);
+  const selectedCase = cases.find((item) => item.case_id === selectedCaseId) || cases[0];
+  return e("div", { className: "panel eval-report" },
+    e("div", { className: "topbar" },
+      e("div", null,
+        e("h3", null, run.suite || "eval run"),
+        e("div", { className: "meta" }, `${run.run_id} · ${formatTime(run.finished_at || run.started_at || run.imported_at)}`)
+      ),
+      e("span", { className: `badge ${run.status === "completed" ? "ok" : "warn"}` }, run.status || "unknown")
+    ),
+    e("div", { className: "metric-grid eval-metrics" },
+      e(Metric, { label: "Pass rate", value: formatPercent(run.pass_rate) }),
+      e(Metric, { label: "Passed", value: `${run.passed_cases || 0}/${run.total_cases || 0}` }),
+      e(Metric, { label: "Score mean", value: Number(run.score_mean || 0).toFixed(2) }),
+      e(Metric, { label: "Score stddev", value: Number(run.score_stddev || 0).toFixed(3) }),
+      e(Metric, { label: "Overall tokens saved", value: formatInteger(tokensSavedTotal(run)) }),
+      e(Metric, { label: "Quality delta", value: Number(run.metrics?.quality_delta_mean || 0).toFixed(2) })
+    ),
+    e("div", { className: "section-heading" },
+      e("h3", null, "Cases"),
+      e("span", { className: "meta" }, `${cases.length} total`)
+    ),
+    e("div", { className: "eval-case-table" },
+      e("div", { className: "eval-case-head" },
+        e("span", null, "Case"),
+        e("span", null, "Dimension"),
+        e("span", null, "Score"),
+        e("span", null, "Status"),
+        e("span", null, "Reason")
+      ),
+      cases.map((item) => e("button", {
+        key: item.case_id,
+        className: `eval-case-row ${selectedCase && item.case_id === selectedCase.case_id ? "active" : ""}`,
+        onClick: () => setSelectedCaseId(item.case_id),
+      },
+        e("span", { className: "eval-run-title" }, item.name || item.case_id),
+        e("span", null, item.dimension),
+        e("span", null, Number(item.score || 0).toFixed(2)),
+        e("span", { className: `badge ${item.status === "passed" ? "ok" : "warn"}` }, item.status),
+        e("span", null, item.failure_reason || "no failure")
+      ))
+    ),
+    selectedCase ? e(EvalCaseDetail, { item: selectedCase }) : null
+  );
+}
+
+function EvalCaseDetail({ item }) {
+  return e("div", { className: "eval-case-inspector" },
+    e("div", { className: "topbar" },
+      e("div", null,
+        e("h4", null, item.name || item.case_id),
+        e("div", { className: "meta" }, `${item.dimension} · ${item.case_id}`)
+      ),
+      e("span", { className: `badge ${item.status === "passed" ? "ok" : "warn"}` }, item.status)
+    ),
+    e("div", { className: "metric-grid" },
+      Object.entries(item.metrics || {}).slice(0, 12).map(([key, value]) =>
+        e(Metric, { key, label: key, value: String(value) })
+      )
+    ),
+    (item.missing_expected_items || []).length
+      ? e("div", { className: "prompt-section" },
+        e("h4", null, "Missing Expected Items"),
+        e("div", { className: "chip-list" }, item.missing_expected_items.map((value) => e("span", { className: "chip", key: value }, value)))
+      )
+      : null,
+    (item.incorrect_items || []).length
+      ? e("div", { className: "prompt-section" },
+        e("h4", null, "Incorrect Items"),
+        e("div", { className: "chip-list" }, item.incorrect_items.map((value) => e("span", { className: "chip", key: value }, value)))
+      )
+      : null,
+    e("details", { className: "eval-artifacts" },
+      e("summary", null, "Artifacts"),
+      e("div", { className: "markdown prompt-text eval-artifact" }, JSON.stringify(item.artifacts || {}, null, 2))
+    )
+  );
+}
+
+function Metric({ label, value }) {
+  return e("div", { className: "metric" },
+    e("div", { className: "meta" }, label),
+    e("strong", null, value)
+  );
+}
+
+function tokensSavedTotal(run) {
+  return Number(run?.metrics?.tokens_saved_total || 0);
+}
+
+function formatInteger(value) {
+  return Number(value || 0).toLocaleString("en-US", { maximumFractionDigits: 0 });
+}
+
 function ProjectSkillTab({ userId, setError, refreshProjects, refreshKey }) {
   const [data, setData] = React.useState(null);
   const [rebuilding, setRebuilding] = React.useState(false);
+  const [evaluating, setEvaluating] = React.useState(false);
+  const [evalRun, setEvalRun] = React.useState("");
   const [editing, setEditing] = React.useState(false);
   const [saving, setSaving] = React.useState(false);
   const [draft, setDraft] = React.useState("");
@@ -560,6 +791,8 @@ function ProjectSkillTab({ userId, setError, refreshProjects, refreshKey }) {
     setEditing(false);
     setSaving(false);
     setRebuilding(false);
+    setEvaluating(false);
+    setEvalRun("");
     setDraft("");
   }, [userId]);
   React.useEffect(() => {
@@ -595,6 +828,18 @@ function ProjectSkillTab({ userId, setError, refreshProjects, refreshKey }) {
       .catch((err) => setError(err.message))
       .finally(() => setSaving(false));
   };
+  const runEval = () => {
+    if (evaluating) return;
+    setEvaluating(true);
+    setError("");
+    api(`/api/projects/${enc(userId)}/project-skill/eval-runs/run`, {
+      method: "POST",
+      body: JSON.stringify({ suite: "project-skill" }),
+    })
+      .then((next) => setEvalRun(next.run?.run_id || "completed"))
+      .catch((err) => setError(err.message))
+      .finally(() => setEvaluating(false));
+  };
   if (!data) return e("div", { className: "empty" }, "No project skill saved yet.");
   const ps = data.project_skill || {};
   return e("div", { className: "panel" },
@@ -615,9 +860,11 @@ function ProjectSkillTab({ userId, setError, refreshProjects, refreshKey }) {
             disabled: saving,
           }, "Cancel")
         ) : e("button", { onClick: () => setEditing(true) }, "Edit"),
+        e("button", { onClick: runEval, disabled: evaluating || saving || editing }, evaluating ? "Evaluating..." : "Run Eval"),
         e("button", { className: "primary", onClick: rebuild, disabled: rebuilding || saving || editing }, rebuilding ? "Rebuilding..." : "Rebuild")
       )
     ),
+    evalRun ? e("div", { className: "meta panel-meta" }, `eval saved ${evalRun}`) : null,
     editing
       ? e("textarea", { className: "project-skill-editor", value: draft, onChange: (event) => setDraft(event.target.value) })
       : e("div", { className: "markdown" }, ps.content || ""),

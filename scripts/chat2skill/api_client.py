@@ -42,6 +42,10 @@ def unified_recall_synthesize(api_url: str, payload: dict, timeout: int = DEFAUL
     return _post_json(f"{api_url.rstrip('/')}/v1/unified/recall-synthesize", payload, timeout)
 
 
+def eval_run(api_url: str, payload: dict, timeout: int = DEFAULT_TIMEOUT) -> dict:
+    return _post_json(f"{api_url.rstrip('/')}/v1/evals/run", payload, timeout)
+
+
 def _post_json(url: str, payload: dict, timeout: int) -> dict:
     payload = {"schema_version": SCHEMA_VERSION, **payload}
     api_key = _payload_api_key(payload)

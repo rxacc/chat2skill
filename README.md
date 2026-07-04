@@ -20,7 +20,7 @@ Chat2Skill extracts reusable project context in two stores:
 
 - **Atomized skills**: focused `SKILL.md` files for one interaction preference,
   procedure, constraint, success pattern, or failure pattern.
-- **Project memory**: Engram-style project facts, decisions, procedures, and
+- **Project memory**: project facts, decisions, procedures, and
   warnings stored in the local SQLite database and retrieved dynamically.
 - **Project skill**: a synthesized `PROJECT_SKILL.md` that merges active
   atomized skills into a compact project-level instruction file for human
@@ -189,6 +189,11 @@ For OpenAI-compatible models, write `~/.chat2skill/config.json` like this:
     "api_key": "your-openai-compatible-api-key",
     "base_url": null,
     "model": "gpt-4.1"
+  },
+  "embedding": {
+    "provider": "local_transformers",
+    "model": "Snowflake/snowflake-arctic-embed-xs",
+    "dimensions": 384
   }
 }
 ```
@@ -212,6 +217,24 @@ For DeepSeek, write `~/.chat2skill/config.json` like this:
     "api_key": "your-deepseek-api-key",
     "base_url": "https://api.deepseek.com",
     "model": "deepseek-chat"
+  },
+  "embedding": {
+    "provider": "local_transformers",
+    "model": "Snowflake/snowflake-arctic-embed-xs",
+    "dimensions": 384
+  }
+}
+```
+
+For a remote OpenAI-compatible embedding endpoint, replace the `embedding`
+block with:
+
+```json
+{
+  "embedding": {
+    "api_key": "your-embedding-api-key",
+    "base_url": "http://127.0.0.1:8080/v1",
+    "model": "BAAI/bge-large-en-v1.5"
   }
 }
 ```
@@ -235,7 +258,7 @@ local `~/.chat2skill/c2s.db` database. It can:
 - list Chat2Skill projects discovered from the local database
 - view and rebuild the project-level `PROJECT_SKILL.md`
 - search, edit, archive, activate, and delete atomized skills
-- search, edit, archive, activate, and delete Engram-style project memories
+- search, edit, archive, activate, and delete project memories
 - inspect the source skill snapshot used for the current project skill version
 
 For frontend development, run the Vite shell separately:
@@ -417,6 +440,7 @@ adapter map.
 ## Requirements
 
 - Python 3.10+ (standard library only — no pip installs)
+- Node.js + npm for optional local embeddings through `Snowflake/snowflake-arctic-embed-xs`
 - A Chat2Skill API endpoint (`api_url` in config)
 - Optional: an OpenAI-compatible LLM api key for high-quality extraction
 
