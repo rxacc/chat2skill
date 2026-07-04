@@ -51,6 +51,8 @@ CORE_MEMORY_CHAR_LIMIT = 5000
 DEFAULT_WORKED_EXAMPLE_TOP_K = 2
 DEFAULT_WORKED_EXAMPLE_MIN_SCORE = 0.82
 DEFAULT_WORKED_EXAMPLE_BACKFILL_LIMIT = 50
+EMBED_MEMORY_BATCH_SIZE = 64
+ACTIVITY_EMBED_CHAR_LIMIT = 6000
 WORKED_EXAMPLE_RAW_CHAR_LIMIT = 800
 WORKED_EXAMPLE_MEMORY_CHAR_LIMIT = 600
 
@@ -393,27 +395,29 @@ def _embed_context_memories(
     memories = [item for item in context.get("memories") or [] if not item.get("embedding")]
     if not memories:
         return
-    texts = [
-        "\n".join(
-            str(part)
-            for part in [
-                item.get("memory_type"),
-                item.get("section"),
-                item.get("content"),
-            ]
-            if part
-        )
-        for item in memories
-    ]
-    try:
-        if hasattr(embedding_client, "embed_many"):
-            vectors = embedding_client.embed_many(texts, model=embedding_model)
-        else:
-            vectors = [embedding_client.embed(text, model=embedding_model) for text in texts]
-    except Exception:
-        return
-    for item, vector in zip(memories, vectors):
-        item["embedding"] = vector
+    for start in range(0, len(memories), EMBED_MEMORY_BATCH_SIZE):
+        batch = memories[start : start + EMBED_MEMORY_BATCH_SIZE]
+        texts = [
+            "\n".join(
+                str(part)
+                for part in [
+                    item.get("memory_type"),
+                    item.get("section"),
+                    item.get("content"),
+                ]
+                if part
+            )
+            for item in batch
+        ]
+        try:
+            if hasattr(embedding_client, "embed_many"):
+                vectors = embedding_client.embed_many(texts, model=embedding_model)
+            else:
+                vectors = [embedding_client.embed(text, model=embedding_model) for text in texts]
+        except Exception:
+            continue
+        for item, vector in zip(batch, vectors):
+            item["embedding"] = vector
 
 
 def _embed_text(text: str, embedding_client, embedding_model: str | None) -> list[float]:
@@ -501,7 +505,8 @@ def _backfill_activity_inputs_for_examples(
         raw_input = _messages_text(messages)
         if not raw_input:
             continue
-        vector = _embed_text(raw_input, embedding_client, embedding_model)
+        embedding_input = _cap_chars(raw_input, ACTIVITY_EMBED_CHAR_LIMIT)
+        vector = _embed_text(embedding_input, embedding_client, embedding_model)
         if not vector:
             continue
         storage.update_memory_activity_input(

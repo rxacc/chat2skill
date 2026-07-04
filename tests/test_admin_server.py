@@ -345,6 +345,18 @@ class AdminServerTests(unittest.TestCase):
         dimensions = {suite: values for suite, values in seen}
         self.assertIn("recall_synthesis_quality", dimensions["memory:m1"])
         self.assertIn("answer_quality_lift", dimensions["prompt:mat-1"])
+        self.assertEqual(
+            set(dimensions["prompt:mat-1"]),
+            {
+                "retrieval_coverage",
+                "recall_synthesis_quality",
+                "prompt_injection_quality",
+                "context_relevance_quality",
+                "answer_quality_lift",
+                "efficiency_lift",
+                "stability_regression",
+            },
+        )
         self.assertIn("answer_quality_lift", dimensions["project-skill"])
 
     def test_prompt_eval_uses_saved_prompt_text_without_exact_memory_id_match(self):

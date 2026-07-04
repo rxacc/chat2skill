@@ -446,6 +446,21 @@ def _build_project_eval_cases(user_id: str) -> list[dict]:
                     "expected": expected | {"must_include": ["Relevant Project Memory"] + expected.get("must_include", [])},
                 },
                 {
+                    "case_id": f"{user_id}__context_relevance",
+                    "dimension": "context_relevance_quality",
+                    "name": "Evaluate injected context relevance",
+                    "project_id": user_id,
+                    "query": query,
+                    "with_chat2skill": {
+                        "output": "\n".join(item.get("content", "") for item in memories[:12])
+                    },
+                    "expected": expected
+                    | {
+                        "max_context_tokens": 4000,
+                        "min_relevance_density": 0.001,
+                    },
+                },
+                {
                     "case_id": f"{user_id}__answer_quality_lift",
                     "dimension": "answer_quality_lift",
                     "name": "Estimate quality lift from available memory context",
@@ -546,7 +561,70 @@ def _build_prompt_eval_cases(user_id: str, materialization: dict) -> list[dict]:
     terms = _expected_terms(rendered_prompt, limit=4) if rendered_prompt else _expected_terms(query, limit=2)
     if "Chat2Skill" in rendered_prompt and "Chat2Skill" not in terms:
         terms.insert(0, "Chat2Skill")
+    context_key = str(materialization.get("context_key") or "project")
+    prompt_memories = _materialization_memories(user_id, context_key, materialization)
+    prompt_skills = _materialization_skills(user_id, materialization)
+    eval_memory_state = _memory_state(prompt_memories) if prompt_memories else _memory_state(
+        [
+            {
+                "id": f"prompt-{_case_id_part(materialization.get('materialization_id'))}",
+                "content": rendered_prompt or query,
+                "memory_type": "procedure",
+                "section": "prompt",
+                "salience": 1.0,
+                "confidence": 1.0,
+                "is_active": True,
+                "is_archived": False,
+            }
+        ]
+    )
+    eval_expected = {
+        "must_include": terms,
+    }
     cases = [
+        {
+            "case_id": f"{user_id}__prompt__{_case_id_part(materialization.get('materialization_id'))}__retrieval",
+            "dimension": "retrieval_coverage",
+            "name": f"Prompt retrieval {materialization.get('materialization_id')}",
+            "project_id": user_id,
+            "query": query or rendered_prompt[:160],
+            "existing_memory": eval_memory_state,
+            "existing_skills": prompt_skills,
+            "expected": eval_expected,
+        },
+        {
+            "case_id": f"{user_id}__prompt__{_case_id_part(materialization.get('materialization_id'))}__recall",
+            "dimension": "recall_synthesis_quality",
+            "name": f"Prompt recall {materialization.get('materialization_id')}",
+            "project_id": user_id,
+            "query": query or rendered_prompt[:160],
+            "existing_memory": eval_memory_state,
+            "existing_skills": prompt_skills,
+            "expected": eval_expected,
+        },
+        {
+            "case_id": f"{user_id}__prompt__{_case_id_part(materialization.get('materialization_id'))}__injection",
+            "dimension": "prompt_injection_quality",
+            "name": f"Prompt injection {materialization.get('materialization_id')}",
+            "project_id": user_id,
+            "query": query or rendered_prompt[:160],
+            "existing_memory": eval_memory_state,
+            "existing_skills": prompt_skills,
+            "expected": eval_expected | {"must_include": ["Chat2Skill"] + terms},
+        },
+        {
+            "case_id": f"{user_id}__prompt__{_case_id_part(materialization.get('materialization_id'))}__context_relevance",
+            "dimension": "context_relevance_quality",
+            "name": f"Prompt context relevance {materialization.get('materialization_id')}",
+            "project_id": user_id,
+            "query": query,
+            "with_chat2skill": {"output": rendered_prompt or query},
+            "expected": eval_expected
+            | {
+                "max_context_tokens": max(1200, int(materialization.get("token_count") or 0) + 400),
+                "min_relevance_density": 0.001,
+            },
+        },
         {
             "case_id": f"{user_id}__prompt__{_case_id_part(materialization.get('materialization_id'))}__content",
             "dimension": "answer_quality_lift",
@@ -559,7 +637,22 @@ def _build_prompt_eval_cases(user_id: str, materialization: dict) -> list[dict]:
                 "must_include": terms,
                 "min_quality_delta": 0.2 if terms else 0.0,
             },
-        }
+        },
+        {
+            "case_id": f"{user_id}__prompt__{_case_id_part(materialization.get('materialization_id'))}__stability",
+            "dimension": "stability_regression",
+            "name": f"Prompt eval stability {materialization.get('materialization_id')}",
+            "project_id": user_id,
+            "repeats": [
+                {"score": 1.0, "pass_rate": 1.0, "tokens_saved": 0, "latency_ms": 0},
+                {"score": 1.0, "pass_rate": 1.0, "tokens_saved": 0, "latency_ms": 0},
+            ],
+            "expected": {
+                "min_score_mean": 1.0,
+                "max_score_stddev": 0.0,
+                "min_pass_rate_mean": 1.0,
+            },
+        },
     ]
     injected_tokens = int(materialization.get("token_count") or 0)
     if injected_tokens:
@@ -588,6 +681,24 @@ def _build_prompt_eval_cases(user_id: str, materialization: dict) -> list[dict]:
             }
         )
     return cases
+
+
+def _materialization_memories(user_id: str, context_key: str, materialization: dict) -> list[dict]:
+    memories = []
+    for memory_id in materialization.get("memories_included") or []:
+        memory = _get_memory(user_id, context_key, str(memory_id))
+        if memory:
+            memories.append(memory)
+    return memories
+
+
+def _materialization_skills(user_id: str, materialization: dict) -> list[dict]:
+    skills = []
+    for skill_name in materialization.get("skills_included") or []:
+        skill = storage.get_skill(str(skill_name), user_id=user_id)
+        if skill:
+            skills.append(skill.to_dict())
+    return skills
 
 
 def _build_project_skill_eval_cases(user_id: str, project_skill: dict) -> list[dict]:
