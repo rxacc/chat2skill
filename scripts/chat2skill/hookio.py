@@ -110,7 +110,6 @@ def prompt_from_input(data: dict[str, Any]) -> str:
 def json_hook_output(additional_context: str) -> None:
     json.dump(
         {
-            "additional_context": additional_context,
             "hookSpecificOutput": {
                 "hookEventName": "UserPromptSubmit",
                 "additionalContext": additional_context,

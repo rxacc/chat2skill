@@ -344,10 +344,12 @@ class MemoryClientTests(unittest.TestCase):
                         "skills": {"skills_included": ["hook-skill"]},
                     }
                     with patch.object(hook_user_prompt_submit, "materialize_for_prompt", return_value=result):
-                        with redirect_stdout(io.StringIO()):
+                        stdout = io.StringIO()
+                        with redirect_stdout(stdout):
                             code = hook_user_prompt_submit.inject_memory_context(
                                 _config(), "/repo/project", "user-1", "current prompt"
                             )
+                    hook_output = json.loads(stdout.getvalue())
                     conn = sqlite3.connect(str(db_path))
                     row = conn.execute(
                         """
@@ -359,6 +361,15 @@ class MemoryClientTests(unittest.TestCase):
                     conn.close()
 
         self.assertEqual(code, 0)
+        self.assertNotIn("additional_context", hook_output)
+        self.assertEqual(
+            hook_output["hookSpecificOutput"]["hookEventName"],
+            "UserPromptSubmit",
+        )
+        self.assertIn(
+            "## Chat2Skill Memory and Skills",
+            hook_output["hookSpecificOutput"]["additionalContext"],
+        )
         self.assertIn("## Chat2Skill Memory and Skills", row[0])
         self.assertIn("Materialization ID: mat-hook", row[0])
         self.assertEqual(json.loads(row[1]), ["hook-skill"])

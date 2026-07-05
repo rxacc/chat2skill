@@ -6,14 +6,14 @@
   },
   "metadata": {
     "description": "Marketplace for Chat2Skill Claude Code plugins.",
-    "version": "0.1.6"
+    "version": "0.1.7"
   },
   "plugins": [
     {
       "name": "chat2skill",
       "source": "./",
       "description": "Automatically learn reusable skills from Claude Code conversations, inject them into future sessions, and enforce learned hard response constraints through a Stop response guard.",
-      "version": "0.1.6",
+      "version": "0.1.7",
       "category": "productivity",
       "skills": [
         "./skills/chat2skill"
