@@ -619,6 +619,12 @@ class MemoryClientTests(unittest.TestCase):
                         "success",
                         feedback={"note": "useful"},
                     )
+                    reloaded = load_context("/repo/project", "user-1")
+                    self.assertEqual(
+                        reloaded["last_materialization"]["feedback"],
+                        {"note": "useful"},
+                    )
+                    save_context("/repo/project", "user-1", reloaded)
                     conn = sqlite3.connect(str(db_path))
                     row = conn.execute(
                         """

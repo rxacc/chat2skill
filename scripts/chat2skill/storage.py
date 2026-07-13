@@ -1202,6 +1202,12 @@ def save_project_memory_materialization(user_id: str, context_key: str, material
     if not materialization_id:
         return
     now = datetime.now().isoformat()
+    feedback = materialization.get("feedback")
+    stored_feedback = (
+        json.dumps(feedback, ensure_ascii=False)
+        if isinstance(feedback, (dict, list))
+        else feedback
+    )
     conn = sqlite3.connect(str(DB_PATH))
     c = conn.cursor()
     c.execute(
@@ -1223,7 +1229,7 @@ def save_project_memory_materialization(user_id: str, context_key: str, material
             materialization.get("rendered_prompt", ""),
             materialization.get("token_count"),
             materialization.get("outcome"),
-            materialization.get("feedback"),
+            stored_feedback,
             materialization.get("reconsolidated_at"),
             now,
         ),
