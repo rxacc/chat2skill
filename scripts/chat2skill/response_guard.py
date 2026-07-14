@@ -13,7 +13,7 @@ import os
 import time
 from dataclasses import dataclass, replace
 from pathlib import Path
-from typing import Iterable, List, Sequence
+from typing import Iterable, List, Mapping, Sequence
 import re
 
 from . import storage
@@ -267,6 +267,11 @@ def stop_hook_output(result: GuardResult) -> str:
         {"decision": "block", "reason": result.reason},
         ensure_ascii=False,
     )
+
+
+def blocking_stop_hook_supported(environment: Mapping[str, str]) -> bool:
+    """Return whether the active host can safely replay a blocking Stop hook."""
+    return not bool(environment.get("CODEX_PLUGIN_ROOT"))
 
 
 def _guard_state_key(user_id: str, terms: Sequence[str]) -> str:

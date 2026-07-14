@@ -7,7 +7,7 @@ the project-level skill.
 
 from __future__ import annotations
 
-import dataclasses
+import json
 from datetime import datetime
 from pathlib import Path
 from typing import List, Optional
@@ -22,7 +22,9 @@ from .models import Skill
 PROJECT_SKILL_FILE = "PROJECT_SKILL.md"
 PROJECT_SKILL_NAME = "project-skill"
 LEGACY_PROJECT_SUMMARY_NAME = "project-chat2skill-summary"
+PROJECT_SKILL_REQUEST_BYTES_LIMIT = 1_500_000
 PROJECT_SKILL_CONTENT_LIMIT = 2200
+PROJECT_SKILL_DESCRIPTION_LIMIT = 600
 PROJECT_SKILL_MEMORY_ITEMS_PER_SKILL = 6
 PROJECT_SKILL_MEMORY_TITLE_LIMIT = 160
 PROJECT_SKILL_MEMORY_DESCRIPTION_LIMIT = 240
@@ -81,10 +83,11 @@ def rebuild_project_skill(
     payload = {
         "user_id": user_id,
         "skills": payload_skills,
-        "recent_messages": recent_messages or [],
+        "recent_messages": _compact_recent_messages(recent_messages or []),
         "existing_language": _existing_summary_language(user_id),
         "llm": llm_payload(config),
     }
+    payload = _fit_project_skill_request(payload)
     try:
         response = api_client.project_skill(config["api_url"], payload)
     except (ApiError, TimeoutError, OSError) as exc:
@@ -169,11 +172,84 @@ def _existing_summary_language(user_id: str) -> Optional[str]:
 
 
 def _project_skill_payload(skill: Skill, memory_items: Optional[list[dict]] = None) -> dict:
-    payload = dataclasses.asdict(skill)
-    payload["content"] = _cap_text(skill.content or "", PROJECT_SKILL_CONTENT_LIMIT)
-    payload["embedding_vector"] = []
-    payload["memory_items"] = _compact_project_skill_memory_items(memory_items or [])
-    return payload
+    return {
+        "name": str(skill.name or ""),
+        "description": _cap_text(str(skill.description or ""), PROJECT_SKILL_DESCRIPTION_LIMIT),
+        "content": _cap_text(str(skill.content or ""), PROJECT_SKILL_CONTENT_LIMIT),
+        "version": int(skill.version or 1),
+        "skill_type": str(skill.skill_type or "preference"),
+        "scope": str(skill.scope or "user"),
+        "evidence_count": int(skill.evidence_count or 0),
+        "confidence": float(skill.confidence or 0.0),
+        "status": str(skill.status or "active"),
+        "replay_score": float(skill.replay_score or 0.0),
+        "replay_cases": int(skill.replay_cases or 0),
+        "language": str(skill.language or "en"),
+        "response_guard": dict(skill.response_guard or {}),
+        "memory_items": _compact_project_skill_memory_items(memory_items or []),
+    }
+
+
+def _compact_recent_messages(messages: list[dict]) -> list[dict]:
+    compact: list[dict] = []
+    total_chars = 0
+    for message in reversed(messages[-20:]):
+        content = str(message.get("content") or "")[:4000]
+        if not content:
+            continue
+        remaining = 40_000 - total_chars
+        if remaining <= 0:
+            break
+        content = content[:remaining]
+        compact.append({"role": str(message.get("role") or "user"), "content": content})
+        total_chars += len(content)
+    compact.reverse()
+    return compact
+
+
+def _fit_project_skill_request(payload: dict) -> dict:
+    fitted = {
+        **payload,
+        "skills": [
+            {**skill, "memory_items": list(skill.get("memory_items") or [])}
+            for skill in payload.get("skills") or []
+        ],
+    }
+    fitted["skills"].sort(key=_project_skill_payload_priority, reverse=True)
+    if _request_size(fitted) <= PROJECT_SKILL_REQUEST_BYTES_LIMIT:
+        return fitted
+
+    for skill in fitted["skills"]:
+        skill["memory_items"] = skill["memory_items"][:1]
+    if _request_size(fitted) <= PROJECT_SKILL_REQUEST_BYTES_LIMIT:
+        return fitted
+
+    for skill in fitted["skills"]:
+        skill["content"] = _cap_text(str(skill.get("content") or ""), 1200)
+    while len(fitted["skills"]) > 1 and _request_size(fitted) > PROJECT_SKILL_REQUEST_BYTES_LIMIT:
+        fitted["skills"].pop()
+    return fitted
+
+
+def _project_skill_payload_priority(skill: dict) -> tuple:
+    guard = skill.get("response_guard") or {}
+    has_guard = bool(isinstance(guard, dict) and guard.get("enabled"))
+    has_constraint = any(
+        isinstance(item, dict) and item.get("item_type") == "constraint"
+        for item in skill.get("memory_items") or []
+    )
+    return (
+        has_guard,
+        has_constraint,
+        float(skill.get("replay_score") or 0.0),
+        float(skill.get("confidence") or 0.0),
+        int(skill.get("evidence_count") or 0),
+        int(skill.get("version") or 1),
+    )
+
+
+def _request_size(payload: dict) -> int:
+    return len(json.dumps(payload, ensure_ascii=False, separators=(",", ":")).encode("utf-8"))
 
 
 def _project_skill_source_rows(

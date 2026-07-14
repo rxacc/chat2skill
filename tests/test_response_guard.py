@@ -12,6 +12,7 @@ sys.path.insert(0, str(ROOT / "scripts"))
 
 from chat2skill.response_guard import (
     apply_response_guard_mode,
+    blocking_stop_hook_supported,
     evaluate_message,
     find_banned_terms,
     reset_guard_state,
@@ -54,6 +55,14 @@ EVIDENCE_BASED_SOURCE = (
 
 
 class ResponseGuardTests(unittest.TestCase):
+    def test_blocking_stop_hook_is_disabled_for_codex(self):
+        self.assertFalse(
+            blocking_stop_hook_supported({"CODEX_PLUGIN_ROOT": "/tmp/chat2skill"})
+        )
+        self.assertTrue(
+            blocking_stop_hook_supported({"CLAUDE_PLUGIN_ROOT": "/tmp/chat2skill"})
+        )
+
     def test_blocks_terms_from_structured_guard_frontmatter(self):
         result = evaluate_message(
             "The response contains beta-rule.",

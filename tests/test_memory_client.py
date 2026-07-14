@@ -950,7 +950,7 @@ class MemoryClientTests(unittest.TestCase):
             assert saved is not None
             self.assertEqual(len(skill_payload["content"]), 2215)
             self.assertTrue(skill_payload["content"].endswith("\n...[truncated]"))
-            self.assertEqual(skill_payload["embedding_vector"], [])
+            self.assertNotIn("embedding_vector", skill_payload)
             self.assertEqual(skill_payload["memory_items"][0]["item_type"], "constraint")
             self.assertEqual(skill_payload["memory_items"][0]["title"], "Keep rollback")
             self.assertEqual(saved["source_memory_count"], 2)
@@ -958,6 +958,56 @@ class MemoryClientTests(unittest.TestCase):
             self.assertEqual(sources[0]["skill_name"], "deploy-process")
             self.assertEqual(sources[0]["project_skill_version"], saved["version"])
             self.assertEqual(sources[0]["source_memory_count"], 2)
+
+    def test_project_skill_request_is_bounded_and_keeps_constraints(self):
+        skills = []
+        for index in range(260):
+            skills.append(
+                {
+                    "name": f"skill-{index}",
+                    "description": "description" * 80,
+                    "content": "content" * 500,
+                    "version": 1,
+                    "skill_type": "preference",
+                    "scope": "user",
+                    "evidence_count": index,
+                    "confidence": 0.5,
+                    "status": "active",
+                    "replay_score": 0.0,
+                    "replay_cases": 0,
+                    "language": "en",
+                    "response_guard": {},
+                    "memory_items": [
+                        {
+                            "item_type": "success",
+                            "content": "memory" * 200,
+                        }
+                        for _ in range(6)
+                    ],
+                }
+            )
+        skills[-1]["name"] = "critical-constraint"
+        skills[-1]["response_guard"] = {"enabled": True, "forbidden_terms": ["maybe"]}
+        skills[-1]["memory_items"][0]["item_type"] = "constraint"
+        payload = {
+            "user_id": "user-1",
+            "skills": skills,
+            "recent_messages": [{"role": "user", "content": "x" * 100_000}],
+            "existing_language": "en",
+            "llm": {"api_key": "secret", "model": "test"},
+        }
+
+        payload["recent_messages"] = runner._compact_recent_messages(  # pylint: disable=protected-access
+            payload["recent_messages"]
+        )
+        fitted = runner._fit_project_skill_request(payload)  # pylint: disable=protected-access
+
+        self.assertLessEqual(
+            runner._request_size(fitted),  # pylint: disable=protected-access
+            runner.PROJECT_SKILL_REQUEST_BYTES_LIMIT,
+        )
+        self.assertEqual(fitted["skills"][0]["name"], "critical-constraint")
+        self.assertLessEqual(len(fitted["recent_messages"][0]["content"]), 4000)
 
     def test_stop_worker_rebuilds_project_skill_after_memory_saved(self):
         with tempfile.TemporaryDirectory() as tmp:
