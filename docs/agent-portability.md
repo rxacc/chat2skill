@@ -9,7 +9,7 @@ load the same behavior in each coding agent.
 | Host | Files | Notes |
 | --- | --- | --- |
 | Claude Code | `.claude-plugin/`, `hooks/hooks.json`, `hooks/claude-hooks.json`, `skills/` | Full plugin marketplace install with the `chat2skill` skill, `UserPromptSubmit`, Stop learning, and Stop response guard hooks. |
-| Codex | `.codex-plugin/plugin.json`, `hooks/hooks.json`, `hooks/codex-hooks.json`, `skills/` | Plugin install with Codex-specific lifecycle hooks, including Stop learning and Stop response guard. `install.sh` refreshes local cache copies during development. |
+| Codex | `.codex-plugin/plugin.json`, `hooks/hooks.json`, `hooks/codex-hooks.json`, `skills/` | Plugin install with Codex-specific retrieval and Stop learning hooks. The blocking Stop response guard is disabled because Codex cannot safely replay its generated hook prompt. `install.sh` writes the Codex manifest into each Codex cache. |
 | Cursor | `.cursor-plugin/`, `.cursor-plugin/hooks.json`, `.cursor/rules/chat2skill.mdc` | Native plugin plus always-on project rule. `stop` learns from Cursor transcripts and runs the response guard when Cursor provides final response text; prompt-specific retrieval should use the skill or CLI because Cursor's current `beforeSubmitPrompt` hook does not inject dynamic context. |
 | OpenCode | `opencode.json`, `.opencode/plugins/chat2skill.mjs`, `.opencode/command/chat2skill.md` | Server plugin calls `retrieve_for_prompt.py` and appends relevant snippets to the system prompt. |
 | GitHub Copilot | `.github/copilot-instructions.md` | Repository instruction file that tells Copilot how to call the Chat2Skill CLI. |

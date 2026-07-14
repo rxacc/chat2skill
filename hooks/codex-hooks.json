@@ -16,10 +16,6 @@
           {
             "type": "command",
             "command": "python3 \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop || python \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop || py -3 \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop"
-          },
-          {
-            "type": "command",
-            "command": "python3 \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop-response-guard || python \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop-response-guard || py -3 \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop-response-guard"
           }
         ]
       }

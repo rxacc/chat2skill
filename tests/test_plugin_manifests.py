@@ -7,6 +7,17 @@ ROOT = Path(__file__).resolve().parents[1]
 
 
 class PluginManifestTests(unittest.TestCase):
+    def test_installer_selects_root_manifest_for_target_host(self):
+        installer = (ROOT / "install.sh").read_text(encoding="utf-8")
+
+        self.assertIn("install_host_for_target()", installer)
+        self.assertIn('*/.codex/*)', installer)
+        self.assertIn('*/.claude/*)', installer)
+        self.assertIn(
+            'write_hooks_json "${target}" "$(install_host_for_target "${target_real}")"',
+            installer,
+        )
+
     def test_codex_plugin_ships_lifecycle_hooks(self):
         plugin_path = ROOT / ".codex-plugin" / "plugin.json"
         hooks_path = ROOT / ".codex-plugin" / "hooks.json"
@@ -30,6 +41,7 @@ class PluginManifestTests(unittest.TestCase):
         ]
         self.assertTrue(all("${CODEX_PLUGIN_ROOT}" in command for command in commands))
         self.assertTrue(all("scripts/chat2skill_hook.py" in command for command in commands))
+        self.assertFalse(any("stop-response-guard" in command for command in commands))
 
     def test_agent_plugin_hook_files_exist(self):
         for path in (
@@ -99,6 +111,7 @@ class PluginManifestTests(unittest.TestCase):
         ]
         self.assertTrue(all("${CLAUDE_PLUGIN_ROOT}" in command for command in commands))
         self.assertTrue(all("scripts/chat2skill_hook.py" in command for command in commands))
+        self.assertTrue(any("stop-response-guard" in command for command in commands))
 
 
 if __name__ == "__main__":

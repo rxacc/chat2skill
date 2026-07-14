@@ -1,7 +1,7 @@
 {
   "name": "chat2skill",
   "version": "0.1.3+codex.202607052247",
-  "description": "Automatically learn coding-agent memory and skills through stateless Chat2Skill extraction, retrieve local context from c2s.db, and enforce learned hard response constraints.",
+  "description": "Automatically learn coding-agent memory and skills through stateless Chat2Skill extraction and retrieve local context from c2s.db.",
   "author": {
     "name": "Chat2Skill contributors"
   },
@@ -9,7 +9,7 @@
   "interface": {
     "displayName": "Chat2Skill",
     "shortDescription": "Learn and retrieve memory and skills from agent conversations.",
-    "longDescription": "Chat2Skill captures conversations after each session, sends a compact current transcript plus locally retrieved top-K context to the stateless Chat2Skill learn API, stores returned memory and skills in ~/.chat2skill/c2s.db, injects relevant local project memory plus skills into new conversations without cloud retrieval, and uses Stop hooks to enforce learned hard wording constraints before a turn ends.",
+    "longDescription": "Chat2Skill captures conversations after each session, sends a compact current transcript plus locally retrieved top-K context to the stateless Chat2Skill learn API, stores returned memory and skills in ~/.chat2skill/c2s.db, and injects relevant local project memory plus skills into new conversations without cloud retrieval. Codex keeps the non-blocking Stop learning hook but does not register the blocking response guard.",
     "developerName": "Chat2Skill contributors",
     "category": "Productivity",
     "capabilities": [

@@ -402,7 +402,9 @@ setup needed.
 ### Agent notes: Codex
 
 Codex installs hooks from the root `hooks/hooks.json` entrypoint. The
-host-specific copy is also kept at `hooks/codex-hooks.json`. The hook
+host-specific copy is also kept at `hooks/codex-hooks.json`. Codex installs do
+not register the blocking Stop response guard because Codex cannot safely
+replay its generated hook prompt. The hook
 entrypoints initialize the local data home on first hook run:
 
 - macOS/Linux: `~/.chat2skill/`
@@ -504,7 +506,7 @@ Chat2Skill needs two capabilities for the full automatic loop:
 | Agent | Current support | Notes |
 | --- | --- | --- |
 | Claude Code | Native plugin marketplace | Full automatic support through `.claude-plugin/marketplace.json`, root `hooks/hooks.json`, `hooks/claude-hooks.json`, the `chat2skill` skill, `UserPromptSubmit`, Stop learning, and Stop response guard. |
-| Codex | Native plugin/local installer | Full automatic support through `.codex-plugin/plugin.json`, root `hooks/hooks.json`, `hooks/codex-hooks.json`, and local cache refresh through `install.sh`, including the Stop response guard. |
+| Codex | Native plugin/local installer | Automatic retrieval and Stop learning through `.codex-plugin/plugin.json`, root `hooks/hooks.json`, `hooks/codex-hooks.json`, and local cache refresh through `install.sh`. The blocking Stop response guard is intentionally disabled on Codex. |
 | Cursor | Native plugin + project rule | Supported through `.cursor-plugin/plugin.json`, `.cursor-plugin/hooks.json`, `.cursor/rules/chat2skill.mdc`, and the `chat2skill` skill. Stop learning works from Cursor transcripts, and the response guard runs when Cursor provides final response text. Dynamic per-prompt context injection is limited by Cursor's current `beforeSubmitPrompt` hook behavior. |
 | OpenCode | Server plugin + command | `opencode.json` loads `.opencode/plugins/chat2skill.mjs`, which calls `retrieve_for_prompt.py` and appends relevant snippets to the system prompt. `.opencode/command/chat2skill.md` adds a manual command prompt. |
 | GitHub Copilot | Repository instructions | `.github/copilot-instructions.md` tells Copilot how to run Chat2Skill CLI retrieval/update. Local Copilot CLI hooks can also call Chat2Skill; cloud/ephemeral agents are not equivalent to local persistent hooks. |

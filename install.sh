@@ -104,10 +104,6 @@ write_codex_hooks_json() {
           {
             "type": "command",
             "command": "python3 \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop || python \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop || py -3 \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop"
-          },
-          {
-            "type": "command",
-            "command": "python3 \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop-response-guard || python \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop-response-guard || py -3 \"${CODEX_PLUGIN_ROOT}/scripts/chat2skill_hook.py\" stop-response-guard"
           }
         ]
       }
@@ -190,6 +186,7 @@ EOF
 
 write_hooks_json() {
     local target_root="$1"
+    local runtime_host="${2:-shared}"
 
     mkdir -p \
         "${target_root}/.codex-plugin" \
@@ -199,8 +196,36 @@ write_hooks_json() {
     write_codex_hooks_json "${target_root}/hooks/codex-hooks.json"
     write_claude_hooks_json "${target_root}/.claude-plugin/hooks.json"
     write_claude_hooks_json "${target_root}/hooks/claude-hooks.json"
-    write_root_hooks_json "${target_root}/hooks/hooks.json"
+    case "${runtime_host}" in
+        codex)
+            write_codex_hooks_json "${target_root}/hooks/hooks.json"
+            ;;
+        claude)
+            write_claude_hooks_json "${target_root}/hooks/hooks.json"
+            ;;
+        shared)
+            write_root_hooks_json "${target_root}/hooks/hooks.json"
+            ;;
+        *)
+            echo "Unknown Chat2Skill runtime host: ${runtime_host}" >&2
+            return 2
+            ;;
+    esac
     rm -f "${target_root}/hooks.json"
+}
+
+install_host_for_target() {
+    case "$1" in
+        */.codex/*)
+            echo "codex"
+            ;;
+        */.claude/*)
+            echo "claude"
+            ;;
+        *)
+            echo "shared"
+            ;;
+    esac
 }
 
 install_optional_node_deps() {
@@ -243,7 +268,7 @@ sync_install_target() {
         --exclude 'config.json' \
         --exclude 'node_modules/' \
         "${PLUGIN_ROOT}/" "${target}/"
-    write_hooks_json "${target}"
+    write_hooks_json "${target}" "$(install_host_for_target "${target_real}")"
     install_optional_node_deps "${target}"
     echo "Overwrote install target: ${target}"
 }

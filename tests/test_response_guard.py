@@ -59,6 +59,21 @@ class ResponseGuardTests(unittest.TestCase):
         self.assertFalse(
             blocking_stop_hook_supported({"CODEX_PLUGIN_ROOT": "/tmp/chat2skill"})
         )
+        self.assertFalse(
+            blocking_stop_hook_supported(
+                {
+                    "CLAUDE_PLUGIN_ROOT": (
+                        "/Users/test/.codex/plugins/cache/chat2skill/chat2skill/0.1.3"
+                    )
+                }
+            )
+        )
+        self.assertFalse(
+            blocking_stop_hook_supported(
+                {"CLAUDE_PLUGIN_ROOT": "/tmp/chat2skill"},
+                Path("/Users/test/.codex/plugins/cache/chat2skill/hook.py"),
+            )
+        )
         self.assertTrue(
             blocking_stop_hook_supported({"CLAUDE_PLUGIN_ROOT": "/tmp/chat2skill"})
         )

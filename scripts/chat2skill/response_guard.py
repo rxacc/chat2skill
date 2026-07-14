@@ -269,9 +269,18 @@ def stop_hook_output(result: GuardResult) -> str:
     )
 
 
-def blocking_stop_hook_supported(environment: Mapping[str, str]) -> bool:
+def blocking_stop_hook_supported(
+    environment: Mapping[str, str], runtime_path: Path | None = None
+) -> bool:
     """Return whether the active host can safely replay a blocking Stop hook."""
-    return not bool(environment.get("CODEX_PLUGIN_ROOT"))
+    if environment.get("CODEX_PLUGIN_ROOT"):
+        return False
+    candidates = [
+        environment.get("CLAUDE_PLUGIN_ROOT", ""),
+        environment.get("CODEX_HOME", ""),
+        str(runtime_path or ""),
+    ]
+    return not any("/.codex/" in value.replace("\\", "/") for value in candidates)
 
 
 def _guard_state_key(user_id: str, terms: Sequence[str]) -> str:

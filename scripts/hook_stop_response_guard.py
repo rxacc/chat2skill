@@ -23,7 +23,7 @@ def main() -> int:
     data = read_hook_input()
     result = evaluate_stop_payload(data)
     if result.blocked:
-        if blocking_stop_hook_supported(os.environ):
+        if blocking_stop_hook_supported(os.environ, Path(__file__).resolve()):
             log_event(
                 "StopResponseGuard.blocked",
                 user_id=result.user_id,
