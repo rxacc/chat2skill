@@ -109,25 +109,123 @@ def clean_message_content(role: str, content: str) -> str:
     return text
 
 
-def find_latest_session(project_dir: str = "") -> Optional[Path]:
-    """Fallback when the hook input carries no transcript path."""
+def find_latest_session(
+    project_dir: str = "",
+    *,
+    session_id: str = "",
+) -> Optional[Path]:
+    """Find the newest transcript without crossing project boundaries."""
     candidates: List[Path] = []
-    cursor_root = Path.home() / ".cursor" / "projects"
+    home = Path.home()
+    cursor_root = home / ".cursor" / "projects"
     cursor_workspace = _cursor_workspace_transcripts(cursor_root, project_dir)
-    roots = [
-        Path.home() / ".codex" / "sessions",
-        Path.home() / ".claude" / "projects",
-    ]
-    if cursor_workspace is not None:
-        roots.insert(0, cursor_workspace)
-    elif cursor_root.exists():
-        roots.append(cursor_root)
-    for root in roots:
-        if root.exists():
-            candidates.extend(p for p in root.rglob("*.jsonl") if p.is_file())
+    codex_root = home / ".codex" / "sessions"
+    claude_root = home / ".claude" / "projects"
+
+    if project_dir:
+        if cursor_workspace is not None:
+            candidates.extend(_jsonl_files(cursor_workspace))
+        if codex_root.exists():
+            candidates.extend(
+                path
+                for path in _jsonl_files(codex_root)
+                if _codex_session_matches_project(path, project_dir)
+            )
+        claude_workspace = _claude_workspace_transcripts(claude_root, project_dir)
+        if claude_workspace is not None:
+            candidates.extend(_jsonl_files(claude_workspace))
+    else:
+        for root in (codex_root, claude_root, cursor_root):
+            candidates.extend(_jsonl_files(root))
+
+    if session_id:
+        candidates = [
+            path for path in candidates if _session_id_matches(path, session_id)
+        ]
     if not candidates:
         return None
     return max(candidates, key=lambda p: p.stat().st_mtime)
+
+
+def transcript_matches_project(path: Path, project_dir: str) -> bool:
+    """Validate known host transcript paths against the active project."""
+    if not project_dir:
+        return True
+    home = Path.home()
+    codex_root = home / ".codex" / "sessions"
+    claude_root = home / ".claude" / "projects"
+    cursor_root = home / ".cursor" / "projects"
+    if _path_is_within(path, codex_root):
+        return _codex_session_matches_project(path, project_dir)
+    if _path_is_within(path, claude_root):
+        workspace = _claude_workspace_transcripts(claude_root, project_dir)
+        return workspace is not None and _path_is_within(path, workspace)
+    if _path_is_within(path, cursor_root):
+        workspace = _cursor_workspace_transcripts(cursor_root, project_dir)
+        return workspace is not None and _path_is_within(path, workspace)
+    return True
+
+
+def _jsonl_files(root: Path) -> List[Path]:
+    if not root.exists():
+        return []
+    return [path for path in root.rglob("*.jsonl") if path.is_file()]
+
+
+def _path_is_within(path: Path, root: Path) -> bool:
+    try:
+        path.expanduser().resolve().relative_to(root.expanduser().resolve())
+        return True
+    except (OSError, ValueError):
+        return False
+
+
+def _session_id_matches(path: Path, session_id: str) -> bool:
+    value = session_id.strip()
+    return bool(value) and (path.stem == value or path.stem.endswith(f"-{value}"))
+
+
+def _codex_session_matches_project(path: Path, project_dir: str) -> bool:
+    expected = _normalized_path(project_dir)
+    if not expected:
+        return False
+    try:
+        with path.open("r", encoding="utf-8") as transcript:
+            for _ in range(20):
+                line = transcript.readline()
+                if not line:
+                    break
+                try:
+                    record = json.loads(line)
+                except json.JSONDecodeError:
+                    continue
+                if record.get("type") != "session_meta":
+                    continue
+                cwd = record.get("payload", {}).get("cwd", "")
+                return _normalized_path(cwd) == expected
+    except OSError:
+        return False
+    return False
+
+
+def _normalized_path(value: str) -> str:
+    if not isinstance(value, str) or not value.strip():
+        return ""
+    try:
+        return str(Path(value).expanduser().resolve())
+    except OSError:
+        return str(Path(value).expanduser())
+
+
+def _claude_workspace_transcripts(
+    claude_root: Path,
+    project_dir: str,
+) -> Optional[Path]:
+    if not project_dir or not claude_root.exists():
+        return None
+    raw = _normalized_path(project_dir)
+    transcript_dir = claude_root / raw.replace("/", "-")
+    return transcript_dir if transcript_dir.exists() else None
 
 
 def _cursor_workspace_transcripts(cursor_root: Path, project_dir: str) -> Optional[Path]:

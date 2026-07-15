@@ -16,7 +16,7 @@ from pathlib import Path
 from typing import Any, Optional
 
 from .config import DATA_HOME, base_user_id
-from .transcripts import find_latest_session
+from .transcripts import find_latest_session, transcript_matches_project
 
 LOG_PATH = DATA_HOME / "hook-events.log"
 
@@ -93,14 +93,29 @@ def project_user_id(project_dir: str) -> str:
 
 
 def transcript_path_from_input(data: dict[str, Any]) -> Optional[Path]:
+    project_dir = project_dir_from_input(data)
     value = first_string(
         data, ("transcript_path", "transcriptPath", "session_path", "sessionPath")
     )
     if value:
         path = Path(value).expanduser()
-        if path.exists():
+        if path.exists() and transcript_matches_project(path, project_dir):
             return path
-    return find_latest_session(project_dir_from_input(data))
+    session_id = first_string(
+        data,
+        (
+            "session_id",
+            "sessionId",
+            "thread_id",
+            "threadId",
+            "conversation_id",
+            "conversationId",
+        ),
+    )
+    return find_latest_session(
+        project_dir,
+        session_id=session_id,
+    )
 
 
 def prompt_from_input(data: dict[str, Any]) -> str:

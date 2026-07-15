@@ -31,7 +31,7 @@ def main() -> int:
     if args.input:
         sessions = [Path(p).expanduser() for p in args.input]
     elif args.latest:
-        latest = find_latest_session()
+        latest = find_latest_session(args.project_dir)
         if not latest:
             print("No session files found.", file=sys.stderr)
             return 2

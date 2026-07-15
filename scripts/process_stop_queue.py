@@ -18,7 +18,7 @@ from chat2skill.config import DATA_HOME, load_config
 from chat2skill.initializer import ensure_user_home
 from chat2skill.memory_client import MemoryClientError
 from chat2skill.hookio import log_event
-from chat2skill.transcripts import parse_transcript
+from chat2skill.transcripts import parse_transcript, transcript_matches_project
 
 QUEUE_PATH = DATA_HOME / "stop-queue.jsonl"
 LOCK_PATH = DATA_HOME / "stop-worker.lock"
@@ -127,6 +127,16 @@ def process_job(job: dict[str, Any], config: dict) -> None:
     user_id = str(job["user_id"])
     session_file = Path(str(job["session_file"])).expanduser()
     project_dir = str(job.get("project_dir") or "")
+
+    if not transcript_matches_project(session_file, project_dir):
+        log_event(
+            "StopWorker.job_skipped",
+            user_id=user_id,
+            session_file=str(session_file),
+            project_dir=project_dir,
+            reason="transcript_project_mismatch",
+        )
+        return
 
     log_event("StopWorker.job_start", user_id=user_id, session_file=str(session_file))
     try:
