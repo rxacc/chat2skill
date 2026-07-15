@@ -1630,8 +1630,8 @@ def _memory_item_to_row(user_id: str, context_key: str, item: dict, now: str) ->
         float(item.get("salience") or 0.5),
         float(item.get("confidence") or 0.5),
         json.dumps(item.get("embedding") or [], ensure_ascii=False),
-        item.get("source_session"),
-        item.get("source_agent"),
+        _sqlite_text(item.get("source_session")),
+        _sqlite_text(item.get("source_agent")),
         int(item.get("recall_count") or 0),
         int(item.get("hit_count") or 0),
         int(item.get("miss_count") or 0),
@@ -1640,6 +1640,17 @@ def _memory_item_to_row(user_id: str, context_key: str, item: dict, now: str) ->
         item.get("created_at") or now,
         item.get("updated_at") or now,
     )
+
+
+def _sqlite_text(value) -> Optional[str]:
+    """Normalize structured provenance before binding it to SQLite TEXT."""
+    if value is None:
+        return None
+    if isinstance(value, str):
+        return value
+    if isinstance(value, (dict, list, tuple)):
+        return json.dumps(value, ensure_ascii=False, sort_keys=True)
+    return str(value)
 
 
 def _memory_item_from_row(row) -> dict:

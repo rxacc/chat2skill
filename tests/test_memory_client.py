@@ -442,6 +442,12 @@ class MemoryClientTests(unittest.TestCase):
                             "last_updated": "now",
                         },
                         "reason": "no_actionable_signals",
+                        "stage": "detector",
+                        "reason_code": "detector_no_signal",
+                        "diagnostics": {
+                            "llm_configured": False,
+                            "detector_mode": "keyword",
+                        },
                     },
                 }
 
@@ -486,6 +492,12 @@ class MemoryClientTests(unittest.TestCase):
                         context = load_context("/repo/project", "user-1")
 
             self.assertEqual(result["status"], "memory_saved")
+            self.assertEqual(result["skill_stage"], "detector")
+            self.assertEqual(result["skill_reason_code"], "detector_no_signal")
+            self.assertEqual(
+                result["skill_diagnostics"]["detector_mode"],
+                "keyword",
+            )
             self.assertEqual(result["memory"]["memories_added"], 1)
             self.assertEqual(result["memory"]["context_path"], str(db_path))
             self.assertEqual(context["core_memory"], "Project uses EC2 deploy.")
@@ -650,6 +662,36 @@ class MemoryClientTests(unittest.TestCase):
             self.assertEqual(mat[0], "success")
             self.assertEqual(json.loads(mat[1]), {"note": "useful"})
             self.assertTrue(mat[2])
+
+    def test_structured_memory_provenance_is_safe_for_sqlite_text(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "c2s.db"
+            skill_dir = Path(tmp) / "skills"
+            with patch.object(memory_client.storage, "DB_PATH", db_path):
+                with patch.object(memory_client.storage, "SKILL_DIR", skill_dir):
+                    memory_client.storage.init_db()
+                    save_context(
+                        "/repo/project",
+                        "user-1",
+                        {
+                            "memories": [
+                                {
+                                    "id": "m-structured-source",
+                                    "content": "Structured provenance must not break persistence.",
+                                    "source_session": {"id": "session-1"},
+                                    "source_agent": {"id": "claude", "type": "coding-agent"},
+                                }
+                            ]
+                        },
+                    )
+                    reloaded = load_context("/repo/project", "user-1")
+
+            memory = reloaded["memories"][0]
+            self.assertEqual(json.loads(memory["source_session"]), {"id": "session-1"})
+            self.assertEqual(
+                json.loads(memory["source_agent"]),
+                {"id": "claude", "type": "coding-agent"},
+            )
 
     def test_reextract_project_memory_dry_run_uses_stored_raw_messages(self):
         with tempfile.TemporaryDirectory() as tmp:

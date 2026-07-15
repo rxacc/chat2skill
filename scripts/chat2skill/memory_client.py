@@ -204,6 +204,9 @@ def commit_transcript(
         },
         "skill": skill_status.get("skill"),
         "skill_status": skill_status.get("skill_status"),
+        "skill_stage": skill_status.get("skill_stage"),
+        "skill_reason_code": skill_status.get("skill_reason_code"),
+        "skill_diagnostics": skill_status.get("skill_diagnostics"),
         "llm_used": response.get("llm_used"),
     }
 
@@ -306,14 +309,34 @@ def _persist_skill_response(
 
     skill_data = skills.get("skill")
     if not skill_data:
-        return {"status": "memory_saved", "reason": skills.get("reason")}
+        return {
+            "status": "memory_saved",
+            "reason": skills.get("reason"),
+            "skill_stage": skills.get("stage"),
+            "skill_reason_code": skills.get("reason_code"),
+            "skill_diagnostics": skills.get("diagnostics"),
+        }
 
     skill = Skill.from_dict(skill_data)
     if skill.status == "rejected":
-        return {"status": "rejected", "skill": skill.name, "skill_status": skill.status}
+        return {
+            "status": "rejected",
+            "skill": skill.name,
+            "skill_status": skill.status,
+            "skill_stage": skills.get("stage"),
+            "skill_reason_code": skills.get("reason_code"),
+            "skill_diagnostics": skills.get("diagnostics"),
+        }
 
     storage.save_skill(skill, user_id=user_id, embedding_client=embedding_client)
-    return {"status": "saved", "skill": skill.name, "skill_status": skill.status}
+    return {
+        "status": "saved",
+        "skill": skill.name,
+        "skill_status": skill.status,
+        "skill_stage": skills.get("stage"),
+        "skill_reason_code": skills.get("reason_code"),
+        "skill_diagnostics": skills.get("diagnostics"),
+    }
 
 
 def _memory_options(config: dict) -> dict[str, Any]:
