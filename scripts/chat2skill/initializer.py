@@ -58,6 +58,7 @@ def _default_config() -> dict:
         "api_url": config.DEFAULT_API_URL,
         "llm": {
             "api_key": "",
+            "provider": "openai",
             "base_url": None,
             "model": "gpt-4.1",
         },

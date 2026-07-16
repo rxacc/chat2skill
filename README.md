@@ -250,6 +250,7 @@ For OpenAI-compatible models, write `~/.chat2skill/config.json` like this:
   },
   "llm": {
     "api_key": "your-openai-compatible-api-key",
+    "provider": "openai",
     "base_url": null,
     "model": "gpt-4.1"
   },
@@ -278,6 +279,7 @@ For DeepSeek, write `~/.chat2skill/config.json` like this:
   },
   "llm": {
     "api_key": "your-deepseek-api-key",
+    "provider": "openai",
     "base_url": "https://api.deepseek.com",
     "model": "deepseek-chat"
   },
@@ -288,6 +290,30 @@ For DeepSeek, write `~/.chat2skill/config.json` like this:
   }
 }
 ```
+
+For Anthropic, use the native provider adapter rather than Anthropic's OpenAI
+compatibility layer:
+
+```json
+{
+  "api_url": "https://api.chat2skill.com",
+  "user_id": "alice",
+  "llm": {
+    "api_key": "your-anthropic-api-key",
+    "provider": "anthropic",
+    "base_url": "https://api.anthropic.com/v1/",
+    "model": "claude-sonnet-5"
+  },
+  "embedding": {
+    "provider": "local_transformers",
+    "model": "Snowflake/snowflake-arctic-embed-xs",
+    "dimensions": 384
+  }
+}
+```
+
+The server also infers `anthropic` from an `api.anthropic.com` base URL for
+older configs that do not yet contain `llm.provider`.
 
 For a remote OpenAI-compatible embedding endpoint, replace the `embedding`
 block with:
@@ -382,6 +408,7 @@ dev server; Vite proxies `/api` requests to the Python backend.
 | `CHAT2SKILL_MEMORY_SKILL_TOP_K` | `memory.skill_top_k` | `6` | Maximum detailed skills injected by local prompt retrieval. |
 | `OPENAI_API_KEY` | `llm.api_key` | unset | Your OpenAI-compatible LLM API key. If unset, extraction falls back to lower-quality heuristics. |
 | `OPENAI_BASE_URL` | `llm.base_url` | `null` | Optional OpenAI-compatible base URL. Use `null` for OpenAI; use `https://api.deepseek.com` for DeepSeek. |
+| `CHAT2SKILL_LLM_PROVIDER` | `llm.provider` | inferred | Chat provider. Supported values are `openai` and `anthropic`. |
 | `CHAT2SKILL_MODEL` | `llm.model` | `gpt-4.1` | Model used for detect/analyze/generate/judge calls. |
 | `CHAT2SKILL_USER_ID` | `user_id` | system username | Base namespace for local skills and profile data. Project-specific skills use `<user>__project__<slug>`. |
 | `CHAT2SKILL_RESPONSE_GUARD` | unset | `adaptive` | Stop response guard mode. Use `adaptive`, `block-once`, `strict`, `warn-only`, or `off`. Structured `response_guard.mode: evidence_based_terms` allows explicit evidence-gap disclosure while still blocking unsupported hedging. |

@@ -66,6 +66,8 @@ def load_config() -> dict:
         llm["api_key"] = os.environ["OPENAI_API_KEY"]
     if os.environ.get("OPENAI_BASE_URL") and not llm.get("base_url"):
         llm["base_url"] = os.environ["OPENAI_BASE_URL"]
+    if os.environ.get("CHAT2SKILL_LLM_PROVIDER"):
+        llm["provider"] = os.environ["CHAT2SKILL_LLM_PROVIDER"]
     if os.environ.get("CHAT2SKILL_MODEL"):
         llm["model"] = os.environ["CHAT2SKILL_MODEL"]
     llm.setdefault("model", "gpt-4.1")
@@ -108,6 +110,7 @@ def llm_payload(config: dict) -> Optional[dict]:
         return None
     payload = {
         "api_key": llm["api_key"],
+        "provider": llm.get("provider"),
         "base_url": llm.get("base_url"),
         "model": llm.get("model", "gpt-4.1"),
         "embedding_model": llm.get("embedding_model"),

@@ -41,6 +41,7 @@ class MemoryClientTests(unittest.TestCase):
             {
                 "llm": {
                     "api_key": "chat-key-123",
+                    "provider": "anthropic",
                     "base_url": "https://chat.example/v1",
                     "model": "gpt-test",
                 },
@@ -53,6 +54,7 @@ class MemoryClientTests(unittest.TestCase):
         )
 
         self.assertEqual(payload["api_key"], "chat-key-123")
+        self.assertEqual(payload["provider"], "anthropic")
         self.assertEqual(payload["embedding_api_key"], "embed-key-123")
         self.assertEqual(payload["embedding_base_url"], "http://127.0.0.1:5831/v1")
         self.assertEqual(payload["embedding_model"], "local-embed")
