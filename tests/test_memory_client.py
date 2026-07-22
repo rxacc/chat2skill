@@ -19,7 +19,7 @@ from chat2skill.embedding_client import LocalTransformersEmbeddingClient
 from chat2skill.i18n import LANGUAGES
 from chat2skill.models import MemoryItem, Skill
 from chat2skill.recall_policy import should_synthesize_recall
-from chat2skill.retrieval import MemoryRetriever
+from chat2skill.retrieval import MemoryRetriever, SkillRetriever
 import hook_user_prompt_submit
 import process_stop_queue
 
@@ -36,6 +36,71 @@ def _config() -> dict:
 
 
 class MemoryClientTests(unittest.TestCase):
+    def test_same_name_collision_splits_unrelated_skill_without_version_churn(self):
+        with tempfile.TemporaryDirectory() as tmp:
+            db_path = Path(tmp) / "c2s.db"
+            skill_dir = Path(tmp) / "skills"
+            with patch.object(memory_client.storage, "DB_PATH", db_path):
+                with patch.object(memory_client.storage, "SKILL_DIR", skill_dir):
+                    memory_client.storage.init_db()
+                    first = Skill(
+                        name="project-rule",
+                        description="Validate deploy rollback.",
+                        content="Check rollback before deployment.",
+                        source_sessions=["s1"],
+                        status="active",
+                    )
+                    memory_client.storage.save_skill(first, user_id="project-1")
+                    memory_client.storage.save_skill(
+                        Skill(
+                            name="project-rule",
+                            description=first.description,
+                            content=first.content,
+                            source_sessions=["s1"],
+                            status="active",
+                        ),
+                        user_id="project-1",
+                    )
+                    memory_client.storage.save_skill(
+                        Skill(
+                            name="project-rule",
+                            description="Keep database migrations reversible.",
+                            content="Add a down migration for schema changes.",
+                            source_sessions=["s2"],
+                            status="active",
+                        ),
+                        user_id="project-1",
+                    )
+                    skills = memory_client.storage.load_skills("project-1")
+
+        self.assertEqual(len(skills), 2)
+        self.assertEqual(next(skill for skill in skills if skill.name == "project-rule").version, 1)
+        self.assertTrue(any(skill.name.startswith("project-rule-") for skill in skills))
+
+    def test_retrievers_apply_final_relevance_floor(self):
+        class FakeEmbedder:
+            def embed(self, text, model=None):
+                return [1.0, 0.0]
+
+        skills = [
+            Skill("strong", "", "", status="active", embedding_vector=[1.0, 0.0]),
+            Skill("weak", "", "", status="active", embedding_vector=[0.6, 0.8]),
+        ]
+        memories = [
+            {"id": "strong", "content": "one", "embedding": [1.0, 0.0]},
+            {"id": "weak", "content": "two", "embedding": [0.6, 0.8]},
+        ]
+
+        retrieved_skills = SkillRetriever(embedding_client=FakeEmbedder()).retrieve(
+            "query", skills, min_score=0.9
+        )
+        retrieved_memories = MemoryRetriever(embedding_client=FakeEmbedder()).retrieve(
+            "query", memories, min_score=0.9
+        )
+
+        self.assertEqual([item.skill.name for item in retrieved_skills], ["strong"])
+        self.assertEqual([item.memory["id"] for item in retrieved_memories], ["strong"])
+
     def test_llm_payload_includes_separate_embedding_config(self):
         payload = memory_client.llm_payload(
             {

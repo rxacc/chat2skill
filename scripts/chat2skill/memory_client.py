@@ -37,6 +37,8 @@ DEFAULT_TOKEN_BUDGET = 4000
 DEFAULT_MEMORY_RATIO = 0.6
 DEFAULT_PROMPT_MEMORY_TOP_K = 12
 DEFAULT_PROMPT_SKILL_TOP_K = 6
+DEFAULT_PROMPT_MEMORY_MIN_SCORE = 0.3
+DEFAULT_PROMPT_SKILL_MIN_SCORE = 0.2
 DEFAULT_RECALL_SYNTHESIS_MEMORY_TOP_K = 32
 DEFAULT_RECALL_SYNTHESIS_SKILL_TOP_K = 8
 DEFAULT_RECALL_SYNTHESIS_TOKEN_BUDGET = 1200
@@ -92,6 +94,7 @@ def materialize_for_prompt(
         context.get("memories") or [],
         top_k=options["prompt_memory_top_k"],
         active_only=True,
+        min_score=options["prompt_memory_min_score"],
     )
     retrieved_skills = SkillRetriever(
         embedding_client=embedding_client,
@@ -101,6 +104,7 @@ def materialize_for_prompt(
         skills,
         top_k=options["skill_top_k"],
         active_only=True,
+        min_score=options["prompt_skill_min_score"],
     )
     query_embedding = _embed_text(prompt, embedding_client, embedding_model)
     worked_examples = _worked_examples_for_prompt(
@@ -348,6 +352,12 @@ def _memory_options(config: dict) -> dict[str, Any]:
         "memory_ratio": memory_ratio,
         "prompt_memory_top_k": int(memory.get("prompt_memory_top_k") or DEFAULT_PROMPT_MEMORY_TOP_K),
         "skill_top_k": int(memory.get("skill_top_k") or DEFAULT_PROMPT_SKILL_TOP_K),
+        "prompt_memory_min_score": float(
+            memory.get("prompt_memory_min_score", DEFAULT_PROMPT_MEMORY_MIN_SCORE)
+        ),
+        "prompt_skill_min_score": float(
+            memory.get("prompt_skill_min_score", DEFAULT_PROMPT_SKILL_MIN_SCORE)
+        ),
         "recall_synthesis_memory_top_k": int(
             memory.get("recall_synthesis_memory_top_k") or DEFAULT_RECALL_SYNTHESIS_MEMORY_TOP_K
         ),

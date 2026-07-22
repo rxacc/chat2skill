@@ -49,6 +49,7 @@ class SkillRetriever:
         skills: Iterable[Skill],
         top_k: int = 6,
         active_only: bool = True,
+        min_score: float = 0.0,
     ) -> List[RetrievedSkill]:
         query_tokens = self._tokens(task_text)
         query_vector = self._embed_query(task_text)
@@ -60,7 +61,7 @@ class SkillRetriever:
                 continue
             text = skill.embedding_text or f"{skill.name}\n{skill.description}\n{skill.content[:1000]}"
             score = self._score(query_vector, query_tokens, skill, text)
-            if score <= 0:
+            if score <= 0 or score < min_score:
                 continue
             candidates.append(RetrievedSkill(skill=skill, score=score))
 
@@ -186,6 +187,7 @@ class MemoryRetriever:
         memories: Iterable[dict],
         top_k: int = 12,
         active_only: bool = True,
+        min_score: float = 0.0,
     ) -> List[RetrievedMemory]:
         query_tokens = SkillRetriever._tokens(task_text)
         query_vector = self._embed_query(task_text)
@@ -198,7 +200,7 @@ class MemoryRetriever:
                 continue
             text = self._memory_text(memory)
             score = self._score(query_tokens, query_vector, memory, text)
-            if score <= 0:
+            if score <= 0 or score < min_score:
                 continue
             candidates.append(RetrievedMemory(memory=memory, score=score))
 

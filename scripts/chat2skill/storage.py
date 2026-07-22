@@ -2,6 +2,7 @@
 
 Stores: conversations, skills, user profile.
 """
+import hashlib
 import json
 import re
 import sqlite3
@@ -650,6 +651,12 @@ def save_skill(skill: Skill, user_id: str = "default", embedding_client=None):
 
     existing_skills = load_skills(user_id, include_pending=True) if DB_PATH.exists() else []
     same_name = next((existing for existing in existing_skills if existing.name == skill.name), None)
+    if same_name and not _skills_mergeable(skill, same_name):
+        original_name = skill.name
+        digest = hashlib.sha1(_skill_semantic_text(skill).encode("utf-8")).hexdigest()[:8]
+        skill.name = f"{original_name}-{digest}"
+        skill.quality_notes.append(f"name_collision_split:{original_name}")
+        same_name = next((existing for existing in existing_skills if existing.name == skill.name), None)
     if same_name:
         _merge_same_name(skill, same_name)
     else:
@@ -719,8 +726,6 @@ def save_skill(skill: Skill, user_id: str = "default", embedding_client=None):
 def _find_merge_target(candidate: Skill, existing_skills: List[Skill]) -> Optional[Skill]:
     best_skill = None
     best_score = 0.0
-    candidate_tokens = _tokens(candidate.embedding_text or candidate.content)
-
     for existing in existing_skills:
         if existing.name == candidate.name:
             continue
@@ -729,11 +734,7 @@ def _find_merge_target(candidate: Skill, existing_skills: List[Skill]) -> Option
         if existing.skill_type != candidate.skill_type:
             continue
 
-        vector_score = 0.0
-        if candidate.embedding_vector and existing.embedding_vector:
-            vector_score = _cosine(candidate.embedding_vector, existing.embedding_vector)
-        existing_text = existing.embedding_text or existing.content
-        lexical_score = _jaccard(candidate_tokens, _tokens(existing_text))
+        vector_score, lexical_score = _skill_similarity(candidate, existing)
         if vector_score < MERGE_COSINE_THRESHOLD and lexical_score < MERGE_LEXICAL_THRESHOLD:
             continue
 
@@ -758,8 +759,12 @@ def _merge_same_name(candidate: Skill, existing: Skill) -> None:
 
 
 def _merge_existing_metadata(candidate: Skill, existing: Skill) -> None:
-    if candidate.version <= existing.version:
-        candidate.version = existing.version + 1
+    content_changed = _skill_semantic_text(candidate) != _skill_semantic_text(existing)
+    candidate.version = (
+        max(candidate.version, existing.version + 1)
+        if content_changed
+        else existing.version
+    )
     candidate.created_at = existing.created_at
     candidate.parent_skill = existing.name
     has_new_sessions = any(
@@ -775,6 +780,29 @@ def _merge_existing_metadata(candidate: Skill, existing: Skill) -> None:
         candidate.evidence_count = max(existing.evidence_count, candidate.evidence_count)
     candidate.confidence = max(existing.confidence, candidate.confidence)
     candidate.status = "active"
+
+
+def _skills_mergeable(candidate: Skill, existing: Skill) -> bool:
+    if _skill_semantic_text(candidate) == _skill_semantic_text(existing):
+        return True
+    vector_score, lexical_score = _skill_similarity(candidate, existing)
+    return vector_score >= MERGE_COSINE_THRESHOLD or lexical_score >= MERGE_LEXICAL_THRESHOLD
+
+
+def _skill_similarity(candidate: Skill, existing: Skill) -> tuple[float, float]:
+    vector_score = 0.0
+    if candidate.embedding_vector and existing.embedding_vector:
+        vector_score = _cosine(candidate.embedding_vector, existing.embedding_vector)
+    lexical_score = _jaccard(
+        _tokens(_skill_semantic_text(candidate)),
+        _tokens(_skill_semantic_text(existing)),
+    )
+    return vector_score, lexical_score
+
+
+def _skill_semantic_text(skill: Skill) -> str:
+    content = re.sub(r"\A---\s*\n.*?\n---\s*\n?", "", skill.content, count=1, flags=re.DOTALL)
+    return f"{skill.description}\n{content}".strip()
 
 
 def _sync_skill_content_metadata(skill: Skill) -> None:

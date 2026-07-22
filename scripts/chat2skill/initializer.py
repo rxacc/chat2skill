@@ -52,6 +52,8 @@ def _default_config() -> dict:
             "memory_ratio": 0.6,
             "skill_top_k": 6,
             "prompt_memory_top_k": 12,
+            "prompt_memory_min_score": 0.3,
+            "prompt_skill_min_score": 0.2,
             "learn_memory_top_k": 40,
             "learn_skill_top_k": 20,
         },
